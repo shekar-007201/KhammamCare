@@ -332,12 +332,19 @@ nav a:hover {
     margin-top: 17px
 }
 
+.hospital-actions a,
 .hospital-actions button {
     flex: 1;
-    padding: 9px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    padding: 9px 12px;
     border-radius: 8px;
     cursor: pointer;
-    font-weight: 700
+    font-weight: 700;
+    font-size: 13px;
+    transition: .2s ease
 }
 
 .map-btn {
@@ -346,10 +353,20 @@ nav a:hover {
     color: #087fdb
 }
 
+.map-btn:hover {
+    background: #f0f8ff;
+    transform: translateY(-1px)
+}
+
 .book-btn {
     border: 0;
     background: #087fdb;
     color: #fff
+}
+
+.book-btn:hover {
+    background: #066bc6;
+    transform: translateY(-1px)
 }
 
 .doctors-section {
@@ -645,6 +662,122 @@ footer {
     margin: 15px 0
 }
 
+.modal-card:has(.receipt) {
+    width: min(560px, 100%);
+    padding: 25px
+}
+
+.receipt {
+    text-align: left
+}
+
+.receipt-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    padding-right: 18px
+}
+
+.receipt-header h2 {
+    color: #172033;
+    font-size: 26px
+}
+
+.receipt-header .success-icon {
+    flex: 0 0 auto;
+    width: 52px;
+    height: 52px;
+    font-size: 24px
+}
+
+.receipt-token {
+    background: #eaf7ff;
+    border: 1px dashed #087fdb;
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin: 20px 0
+}
+
+.receipt-token small,
+.receipt-details span {
+    display: block;
+    color: #7b8492;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .8px;
+    text-transform: uppercase
+}
+
+.receipt-token strong {
+    display: block;
+    color: #087fdb;
+    font-size: 27px;
+    letter-spacing: 1px;
+    margin-top: 3px
+}
+
+.receipt-details {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 17px 14px;
+    border-bottom: 1px solid #e5edf5;
+    padding-bottom: 19px
+}
+
+.receipt-details b {
+    display: block;
+    color: #263449;
+    font-size: 13px;
+    line-height: 1.4;
+    margin-top: 4px
+}
+
+.receipt-details small {
+    display: block;
+    color: #7b8492;
+    font-size: 11px;
+    margin-top: 3px
+}
+
+.receipt-total {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 15px;
+    padding: 18px 0;
+    color: #526176;
+    font-size: 13px
+}
+
+.receipt-total b {
+    color: #172033;
+    font-size: 20px
+}
+
+.receipt-note {
+    background: #f7fbff;
+    border: 1px solid #e5edf5;
+    border-radius: 9px;
+    color: #68778a !important;
+    font-size: 12px !important;
+    line-height: 1.5;
+    padding: 11px 12px;
+    margin-bottom: 18px !important
+}
+
+.receipt-actions {
+    display: grid;
+    grid-template-columns: 1fr 1.5fr;
+    gap: 10px
+}
+
+.receipt-actions .secondary-btn,
+.receipt-actions .primary-btn {
+    text-align: center;
+    padding: 11px 12px
+}
+
 @media(max-width:900px) {
     .hero-grid,
     .appointment-grid,
@@ -720,6 +853,15 @@ footer {
     }
     .menu-btn {
         order: 2
+    }
+    .modal-card:has(.receipt) {
+        padding: 20px
+    }
+    .receipt-details {
+        grid-template-columns: 1fr
+    }
+    .receipt-actions {
+        grid-template-columns: 1fr
     }
 }
 

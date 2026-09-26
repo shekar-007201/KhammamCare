@@ -97,6 +97,41 @@ nav a:hover {
     cursor: pointer
 }
 
+.nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px
+}
+
+.appointment-btn {
+    background: #087fdb;
+    color: #fff;
+    padding: 11px 16px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none
+}
+
+.doctor-btn {
+    color: #087fdb;
+    border: 1px solid #087fdb;
+    padding: 10px 13px;
+    border-radius: 9px;
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap
+}
+
+.doctor-btn:hover {
+    background: #eaf7ff
+}
+
+.appointment-btn:hover {
+    background: #066bc6
+}
+
 .menu-btn {
     display: none;
     border: 0;
@@ -173,18 +208,30 @@ nav a:hover {
 }
 
 .hero-card {
-    background: #fff;
+    background: linear-gradient(180deg, #ffffff 0%, #f5fbff 100%);
     border-radius: 22px;
     padding: 25px;
-    box-shadow: 0 20px 55px #16466d18
+    box-shadow: 0 22px 50px rgba(19, 71, 126, 0.12);
+    border: 1px solid #dfeef9
 }
 
 .hero-card-top {
     display: flex;
     justify-content: space-between;
+    align-items: center;
     font-size: 11px;
     font-weight: 800;
-    color: #687386
+    color: #687386;
+    letter-spacing: .7px
+}
+
+.hero-card-top::after {
+    content: "SUPPORT";
+    display: block;
+    color: #18a957;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: .7px
 }
 
 .live {
@@ -192,21 +239,67 @@ nav a:hover {
 }
 
 .medical-art {
+    display: none;
     font-size: 95px;
     text-align: center;
-    background: #eaf7ff;
+    background: linear-gradient(135deg, #eaf7ff, #dff5ff);
     border-radius: 18px;
     margin: 20px 0;
-    padding: 22px
+    padding: 22px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8)
 }
 
-.hero-card h3 {
-    font-size: 21px
+.support-panel {
+    background: #f6fbff;
+    border: 1px solid #dceefb;
+    border-radius: 16px;
+    padding: 16px;
+    display: grid;
+    gap: 12px;
+    justify-items: center
 }
 
-.hero-card p {
+.support-avatar {
+    width: 88px;
+    height: 88px;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 2px solid #dfeef9;
+    box-shadow: 0 8px 18px rgba(16, 88, 160, .08);
+    flex-shrink: 0
+}
+
+.support-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block
+}
+
+.support-info {
+    display: grid;
+    gap: 8px;
+    width: 100%;
+    text-align: center
+}
+
+.support-heading {
+    font-size: 20px;
+    font-weight: 800;
+    color: #172033;
+    line-height: 1.4
+}
+
+.support-name {
     font-size: 13px;
-    margin: 7px 0 18px
+    color: #3b536d;
+    font-weight: 700
+}
+
+.support-links {
+    display: grid;
+    gap: 10px;
+    margin-top: 4px
 }
 
 .card-link {
@@ -215,8 +308,116 @@ nav a:hover {
     font-weight: 800
 }
 
+.contact-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    color: #0a6ec9;
+    font-weight: 800;
+    text-decoration: none;
+    background: #edf8ff;
+    border: 1px solid #d2ebff;
+    border-radius: 10px;
+    padding: 10px 12px;
+    transition: .2s ease
+}
+
+.contact-number:hover {
+    text-decoration: none;
+    transform: translateY(-1px);
+    box-shadow: 0 10px 20px rgba(26, 96, 176, .08)
+}
+
+.contact-detail {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    text-align: left
+}
+
+.contact-detail small {
+    color: #687386;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .5px
+}
+
+.contact-detail strong {
+    color: #0a6ec9;
+    font-size: 13px;
+    overflow-wrap: anywhere
+}
+
+.small-btn {
+    width: 100%;
+    justify-content: center
+}
+
+.help-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 18px
+}
+
+.help-tags span {
+    background: #f4f9ff;
+    color: #0d6ec9;
+    border: 1px solid #d7ebff;
+    border-radius: 999px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 700
+}
+
+.health-support {
+    padding-top: 0;
+    margin-top: -10px
+}
+
+.health-support-inner {
+    background: linear-gradient(90deg, #0b7fdd, #0b5db3);
+    border-radius: 18px;
+    padding: 22px 26px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    color: #fff;
+    box-shadow: 0 16px 44px rgba(11, 95, 180, 0.2)
+}
+
+.health-support-inner .eyebrow {
+    color: #eaf7ff
+}
+
+.health-support-inner h2 {
+    margin-top: 8px;
+    font-size: clamp(24px, 2vw, 32px)
+}
+
+.health-support-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap
+}
+
+.health-support .primary-btn,
+.health-support .secondary-btn {
+    border-radius: 10px;
+    padding: 12px 18px
+}
+
+.health-support .secondary-btn {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.38);
+    color: #fff
+}
+
 .search-wrap {
-    margin-top: -35px;
+    margin-top: 0;
     position: relative
 }
 
@@ -226,7 +427,7 @@ nav a:hover {
     border-radius: 16px;
     box-shadow: 0 15px 35px #16466d18;
     display: grid;
-    grid-template-columns: 1.4fr 1fr auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     gap: 14px;
     align-items: end
 }
@@ -527,6 +728,29 @@ nav a:hover {
     padding: 22px
 }
 
+.booking-steps {
+    display: grid;
+    gap: 14px;
+    margin: 18px 0 22px
+}
+
+.booking-step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #34465b;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.4
+}
+
+.booking-step svg {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    color: #087fdb
+}
+
 .source-note b {
     color: #087fdb
 }
@@ -797,11 +1021,18 @@ footer {
         display: block;
         margin-left: auto
     }
-    .nav .outline-btn {
+    .nav-actions .outline-btn {
         display: none
+    }
+    .nav-actions {
+        margin-left: auto
     }
     .search-box {
         grid-template-columns: 1fr
+    }
+    .health-support-inner {
+        flex-direction: column;
+        align-items: flex-start
     }
     .footer {
         grid-template-columns: 1fr 1fr
@@ -824,6 +1055,12 @@ footer {
     }
     .hero-actions {
         flex-direction: column
+    }
+    .quick-help {
+        gap: 10px
+    }
+    .health-support-inner {
+        padding: 18px 20px
     }
     .section {
         padding: 60px 0
@@ -853,6 +1090,14 @@ footer {
     }
     .menu-btn {
         order: 2
+    }
+    .appointment-btn {
+        padding: 9px 11px;
+        font-size: 12px
+    }
+    .doctor-btn {
+        padding: 8px 9px;
+        font-size: 11px
     }
     .modal-card:has(.receipt) {
         padding: 20px
@@ -1161,5 +1406,123 @@ footer {
     }
     .admin-topbar h1 {
         font-size: 30px
+    }
+}
+
+
+/* Small-screen layout refinements */
+
+@media(max-width:600px) {
+    body {
+        overflow-x: hidden
+    }
+    .container {
+        width: min(100% - 28px, 1160px)
+    }
+    .brand {
+        min-width: 0;
+        font-size: 17px
+    }
+    .brand-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 21px
+    }
+    .menu-btn {
+        padding: 8px 4px;
+        line-height: 1
+    }
+    nav.open {
+        box-shadow: 0 12px 24px #16466d18
+    }
+    nav.open a {
+        padding: 8px 4px
+    }
+    .hero h1 {
+        font-size: clamp(34px, 11vw, 48px)
+    }
+    .hero p {
+        font-size: 14px
+    }
+    .hero-actions a {
+        width: 100%;
+        text-align: center
+    }
+    .stats {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px 12px;
+        margin-top: 32px
+    }
+    .stats b {
+        font-size: 21px
+    }
+    .stats small {
+        display: block;
+        line-height: 1.35
+    }
+    .hero-card {
+        padding: 18px;
+        border-radius: 16px
+    }
+    .search-wrap {
+        margin-top: 0
+    }
+    .search-box {
+        padding: 14px;
+        gap: 11px
+    }
+    .search-box .primary-btn,
+    .form-card .primary-btn,
+    .modal-card .primary-btn {
+        min-height: 44px
+    }
+    .section-head {
+        margin-bottom: 22px
+    }
+    .section-head h2,
+    .appointment-info h2,
+    .about-card h2 {
+        line-height: 1.18
+    }
+    .hospital-card,
+    .doctor-card {
+        padding: 16px
+    }
+    .hospital-photo {
+        height: 170px
+    }
+    .hospital-actions a,
+    .hospital-actions button,
+    .doctor-card button,
+    .load-more {
+        min-height: 42px
+    }
+    .form-card {
+        padding: 20px 16px
+    }
+    .about-card {
+        padding: 22px 18px
+    }
+    .source-note {
+        padding: 18px
+    }
+    .modal {
+        align-items: flex-start;
+        overflow-y: auto;
+        padding: 14px
+    }
+    .modal-card {
+        margin: auto 0;
+        padding: 22px 18px
+    }
+    .pay-options {
+        grid-template-columns: 1fr
+    }
+    .receipt-header {
+        align-items: flex-start
+    }
+    .receipt-header h2 {
+        font-size: 22px
     }
 }

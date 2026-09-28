@@ -103,6 +103,52 @@ nav a:hover {
     gap: 10px
 }
 
+.auth-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px
+}
+
+.auth-nav-btn svg {
+    width: 17px;
+    height: 17px
+}
+
+.auth-user-name {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px
+}
+
+.mobile-login {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    width: 100%;
+    min-height: 44px;
+    border: 1px solid #087fdb;
+    border-radius: 8px;
+    background: #f1f8fd;
+    color: #087fdb;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer
+}
+
+.mobile-login svg {
+    width: 18px;
+    height: 18px
+}
+
+.mobile-login:disabled {
+    cursor: wait;
+    opacity: .65
+}
+
 .appointment-btn {
     background: #087fdb;
     color: #fff;
@@ -829,6 +875,117 @@ footer {
     margin: 7px 0
 }
 
+.modal-card.login-modal {
+    width: min(430px, 100%);
+    max-height: calc(100dvh - 40px);
+    overflow-y: auto;
+    border: 1px solid #e0eaf2;
+    border-radius: 16px;
+    padding: 32px;
+    overscroll-behavior: contain
+}
+
+.login-mark {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    margin-bottom: 18px;
+    border-radius: 12px;
+    background: #eaf7ff;
+    color: #087fdb
+}
+
+.login-mark svg {
+    width: 23px;
+    height: 23px
+}
+
+.login-modal h2 {
+    margin: 7px 0 5px;
+    color: #172033;
+    font-size: 25px
+}
+
+.modal-card .login-intro {
+    margin: 0;
+    color: #68778a;
+    font-size: 13px;
+    line-height: 1.5
+}
+
+.login-form {
+    display: grid;
+    gap: 9px;
+    margin-top: 22px
+}
+
+.login-form label {
+    color: #34465b;
+    font-size: 12px;
+    font-weight: 700
+}
+
+.modal-card .login-form input {
+    min-height: 46px;
+    margin: 0 0 5px;
+    border-color: #d6e1eb;
+    border-radius: 8px;
+    padding: 11px 12px
+}
+
+.modal-card .login-form input:focus {
+    border-color: #1685d4;
+    box-shadow: 0 0 0 3px rgba(8, 127, 219, .12)
+}
+
+.modal-card .login-form .primary-btn {
+    min-height: 46px;
+    margin-top: 6px
+}
+
+.login-error {
+    margin: 0 !important;
+    color: #b42318 !important;
+    font-size: 12px !important
+}
+
+.modal-card .login-switch {
+    margin: 20px 0 0;
+    text-align: center;
+    font-size: 12px
+}
+
+.login-switch .card-link {
+    border: 0;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-weight: 800;
+    cursor: pointer
+}
+
+.modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: #f3f7fb;
+    color: #536174;
+    font-size: 22px;
+    cursor: pointer
+}
+
+.modal-close:hover {
+    background: #eaf1f7;
+    color: #172033
+}
+
 .x {
     position: absolute;
     right: 13px;
@@ -842,22 +999,41 @@ footer {
 .pay-options {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
-    margin: 14px 0
+    gap: 5px;
+    margin: 14px 0;
+    padding: 5px;
+    background: #f3f7fb;
+    border-radius: 12px
 }
 
 .pay-options button {
-    border: 1px solid #dbe2eb;
-    background: #fff;
-    padding: 10px;
-    border-radius: 8px;
-    cursor: pointer
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 70px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #5b6879;
+    padding: 10px 8px;
+    border-radius: 9px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: .2s ease
+}
+
+.pay-options button svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.8
 }
 
 .pay-options button.active {
-    border-color: #087fdb;
-    background: #eaf7ff;
-    color: #087fdb
+    border-color: #c9e5f7;
+    background: #fff;
+    color: #087fdb;
+    box-shadow: 0 2px 8px rgba(28, 91, 138, .08)
 }
 
 .success {
@@ -900,7 +1076,9 @@ footer {
     align-items: center;
     justify-content: space-between;
     gap: 18px;
-    padding-right: 18px
+    padding: 0 18px 16px 0;
+    margin-bottom: 18px;
+    border-bottom: 1px solid #e5edf5
 }
 
 .receipt-header h2 {
@@ -969,14 +1147,17 @@ footer {
     align-items: center;
     justify-content: space-between;
     gap: 15px;
-    padding: 18px 0;
+    padding: 16px;
+    margin-top: 18px;
+    border-radius: 9px;
+    background: #f4f9fd;
     color: #526176;
     font-size: 13px
 }
 
 .receipt-total b {
-    color: #172033;
-    font-size: 20px
+    color: #087fdb;
+    font-size: 22px
 }
 
 .receipt-note {
@@ -999,7 +1180,10 @@ footer {
 .receipt-actions .secondary-btn,
 .receipt-actions .primary-btn {
     text-align: center;
-    padding: 11px 12px
+    min-height: 44px;
+    padding: 11px 12px;
+    border-radius: 8px;
+    font-weight: 700
 }
 
 @media(max-width:900px) {
@@ -1021,11 +1205,26 @@ footer {
         display: block;
         margin-left: auto
     }
-    .nav-actions .outline-btn {
+    .nav-actions .auth-nav-btn {
+        display: inline-flex;
+        width: auto;
+        min-width: 40px;
+        height: 40px;
+        max-width: 132px;
+        padding: 0 9px
+    }
+    .auth-nav-btn .auth-action-label {
         display: none
     }
+    .auth-nav-btn .auth-user-name {
+        max-width: 58px
+    }
+    nav.open .mobile-login {
+        display: flex
+    }
     .nav-actions {
-        margin-left: auto
+        order: 3;
+        margin-left: 0
     }
     .search-box {
         grid-template-columns: 1fr
@@ -1515,6 +1714,11 @@ footer {
     .modal-card {
         margin: auto 0;
         padding: 22px 18px
+    }
+    .modal-card.login-modal {
+        width: 100%;
+        max-height: calc(100dvh - 24px);
+        padding: 24px 20px
     }
     .pay-options {
         grid-template-columns: 1fr

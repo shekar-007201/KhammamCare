@@ -4,10 +4,16 @@ import App from './App.jsx';
 import Admin from './Admin.jsx';
 import './style.css';
 
-const root = createRoot(document.getElementById('root'));
+const rootElement = document.getElementById('root');
 
-root.render(
-  <React.StrictMode>
-    {window.location.pathname === '/admin' ? <Admin /> : <App />}
-  </React.StrictMode>
-);
+if (!rootElement) {
+  console.error('KhammamCare app root element was not found.');
+} else {
+  const root = createRoot(rootElement);
+
+  root.render(
+    <React.StrictMode>
+      {window.location.pathname === '/admin' ? <Admin /> : <App />}
+    </React.StrictMode>
+  );
+}

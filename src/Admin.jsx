@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { collection, onSnapshot, orderBy, query, updateDoc, doc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth, db } from './firebase.js';
+import DirectoryAdmin from './DirectoryAdmin.jsx';
 
 export default function Admin() {
   const [appointments, setAppointments] = useState([]);
@@ -137,6 +138,7 @@ export default function Admin() {
           </div>
         )}
       </div>
+      <DirectoryAdmin />
     </div>
   );
 }

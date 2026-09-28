@@ -1590,6 +1590,141 @@ footer {
     font-weight: 700
 }
 
+.offline-banner {
+    margin: 0 auto;
+    padding: 12px 4%;
+    background: #fff4d6;
+    color: #805b00;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 700
+}
+
+.loading-spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    margin-right: 8px;
+    border: 3px solid #dbeafe;
+    border-top-color: #087fdb;
+    border-radius: 50%;
+    vertical-align: -4px;
+    animation: spin .8s linear infinite
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg)
+    }
+}
+
+.emergency-section {
+    background: #fff7ed
+}
+
+.emergency-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px
+}
+
+.emergency-card {
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #fed7aa;
+    border-radius: 14px
+}
+
+.emergency-card h3 {
+    margin: 12px 0 8px;
+    font-size: 16px
+}
+
+.emergency-card p {
+    min-height: 38px;
+    color: #697586;
+    font-size: 13px
+}
+
+.emergency-card .primary-btn {
+    display: inline-block;
+    text-decoration: none
+}
+
+.filter-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+    color: #5e697b;
+    font-size: 13px;
+    font-weight: 700
+}
+
+.filter-check input {
+    accent-color: #087fdb
+}
+
+.directory-admin {
+    max-width: 1400px;
+    margin: 24px auto 0
+}
+
+.admin-feedback {
+    color: #087fdb;
+    font-size: 13px;
+    font-weight: 800
+}
+
+.directory-forms {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    padding: 20px;
+    border-bottom: 1px solid #e8eef5
+}
+
+.directory-form {
+    display: grid;
+    gap: 10px
+}
+
+.directory-form h3,
+.directory-records h3 {
+    font-size: 15px
+}
+
+.directory-form input {
+    width: 100%;
+    border: 1px solid #dbe2eb;
+    border-radius: 9px;
+    padding: 11px 13px;
+    font: inherit
+}
+
+.directory-records {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 25px;
+    padding: 20px
+}
+
+.directory-record {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid #edf1f5;
+    font-size: 12px
+}
+
+.directory-record small {
+    display: block;
+    margin-top: 3px;
+    color: #8b96a8
+}
+
 .patient-appointments {
     max-width: 1400px;
     margin: 24px auto 0;
@@ -1679,6 +1814,11 @@ footer {
     .patient-actions {
         justify-content: flex-start
     }
+    .emergency-grid,
+    .directory-forms,
+    .directory-records {
+        grid-template-columns: 1fr 1fr
+    }
 }
 
 @media(max-width:480px) {
@@ -1690,6 +1830,11 @@ footer {
     }
     .admin-topbar h1 {
         font-size: 30px
+    }
+    .emergency-grid,
+    .directory-forms,
+    .directory-records {
+        grid-template-columns: 1fr
     }
 }
 

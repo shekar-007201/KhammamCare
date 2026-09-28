@@ -14,6 +14,10 @@ React + Vite hospital appointment student project for Khammam.
 - Patient cancellation, rescheduling, and completed-visit ratings
 - Admin dashboard at `/admin` with Firebase admin-claim protection and hospital filtering
 - English/Telugu navigation and booking labels
+- Emergency ambulance, blood-bank, and 24-hour hospital contacts
+- Firestore-backed directory management with an offline migration fallback
+- Specialty, area, and open-now filters
+- Installable PWA shell with offline page caching
 - Demo payment before appointment confirmation
 - Appointment token generation
 - Responsive UI
@@ -21,17 +25,22 @@ React + Vite hospital appointment student project for Khammam.
 ## Run
 ```bash
 npm install
+npm run test
 npm run dev
 ```
+
+Copy `.env.example` to `.env.local` and fill in the Firebase web-app values before running locally. `.env.local` is ignored by Git.
 
 ## Firebase setup
 1. Create a Firebase project.
 2. Enable Authentication → Sign-in method → Email/Password.
 3. Create Firestore Database.
 4. Deploy the included rules and indexes: `firebase deploy --only firestore:rules,firestore:indexes`.
-5. Firebase web configuration is stored in `src/firebase.js`.
+5. Firebase web configuration is loaded from Vite environment variables in `.env.local`.
 
 Appointments are saved to `appointments`; slot locks are saved to `slotReservations`; ratings are saved to `ratings`.
+
+Doctors and hospitals are read from the Firestore collections `doctors` and `hospitals`. Until those collections are seeded, the app shows the bundled migration fallback from `src/data.js`; use the protected admin directory panel to add new Firestore records. Emergency contacts are ready to move into `emergencyFacilities` when an admin-managed emergency directory is needed.
 
 ## Admin access
 The dashboard requires a Firebase Authentication custom claim named `admin` with value `true`. Set it from a trusted Firebase Admin SDK script, then sign out and back in so the browser receives a fresh ID token. Do not grant this claim from client-side code.
@@ -54,6 +63,16 @@ firebase deploy --only hosting,firestore:rules,firestore:indexes
 The expected Hosting URL is `https://khammamcare-575c5.web.app` after the first successful deployment. Replace the pending link below with the actual URL shown by Firebase:
 
 **Live site:** deployment pending
+
+## Mobile and PWA checks
+Run `npm run build` and serve `dist` over HTTPS (or localhost), then open browser DevTools → Application to verify the manifest and service worker. Test at least 360px wide and 390px wide viewports, including the navigation menu, filters, booking form, emergency call links, and `/appointments`.
+
+## Screenshots
+Add current screenshots here after running the app locally. Recommended viva captures:
+
+- `docs/screenshots/home-mobile.png`
+- `docs/screenshots/emergency-and-filters.png`
+- `docs/screenshots/admin-directory.png`
 
 ## Important
 Payment is a demo only. No real money is charged. Production use would require secure backend rules, real doctor availability, admin workflows, privacy/security controls, and a real payment gateway.

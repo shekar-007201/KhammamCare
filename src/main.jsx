@@ -8,6 +8,10 @@ const PatientAppointments = lazy(() => import('./PatientAppointments.jsx'));
 
 const rootElement = document.getElementById('root');
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(error => console.warn('PWA registration failed:', error)));
+}
+
 if (!rootElement) {
   console.error('KhammamCare app root element was not found.');
 } else {

@@ -69,5 +69,20 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating', 'comment', 'updatedAt']);
       allow delete: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
     }
+
+    match /doctors/{doctorId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /hospitals/{hospitalId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /emergencyFacilities/{facilityId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
   }
 }

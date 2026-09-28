@@ -3,12 +3,12 @@ import { browserLocalPersistence, initializeAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-    apiKey: "AIzaSyCs3maJRCQ-APi4PPwzF3HjOdeAehuvR_M",
-    authDomain: "khammamcare-575c5.firebaseapp.com",
-    projectId: "khammamcare-575c5",
-    storageBucket: "khammamcare-575c5.firebasestorage.app",
-    messagingSenderId: "357881059461",
-    appId: "1:357881059461:web:c8044cd30e1689590331ec",
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);

@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Building2, CalendarCheck, CreditCard, Landmark, LogIn, Smartphone, Stethoscope, UserRound } from 'lucide-react';
-import { doctors, hospitals } from './data.js';
 import { auth, db } from './firebase.js';
+import { useDirectory } from './useDirectory.js';
+import { validateAppointment } from './validation.js';
 import profilePhoto from '../me.jpg';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   RecaptchaVerifier,
+  sendEmailVerification,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPhoneNumber,
   signOut,
@@ -65,7 +68,8 @@ function Modal({ children, onClose, className = '' }) {
 }
 
 export default function App() {
-  const [query, setQuery] = useState(''), [docSpec, setDocSpec] = useState(''), [docHospital, setDocHospital] = useState('');
+  const { doctors, hospitals, emergencyFacilities, loading: directoryLoading, error: directoryError } = useDirectory();
+  const [query, setQuery] = useState(''), [docSpec, setDocSpec] = useState(''), [docHospital, setDocHospital] = useState(''), [docArea, setDocArea] = useState(''), [openNow, setOpenNow] = useState(false);
   const [shown, setShown] = useState(24), [menu, setMenu] = useState(false), [selectedHospital, setSelectedHospital] = useState(''), [selectedDoctor, setSelectedDoctor] = useState('');
   const [login, setLogin] = useState(false), [authMode, setAuthMode] = useState('login'), [authUsername, setAuthUsername] = useState(''), [authEmail, setAuthEmail] = useState(''), [authPassword, setAuthPassword] = useState(''), [authPhone, setAuthPhone] = useState(''), [authOtp, setAuthOtp] = useState(''), [authMethod, setAuthMethod] = useState('email'), [authError, setAuthError] = useState(''), [authLoading, setAuthLoading] = useState(false), [phoneConfirmation, setPhoneConfirmation] = useState(null), [otpSent, setOtpSent] = useState(false);
   const [user, setUser] = useState(null), [authReady, setAuthReady] = useState(false), [pendingAction, setPendingAction] = useState(null);
@@ -75,6 +79,7 @@ export default function App() {
   const [language, setLanguage] = useState('en'), [doctorRatings, setDoctorRatings] = useState({});
   const accountName = user?.displayName?.trim() || user?.email?.split('@')[0] || 'Account';
   const t = key => translations[language][key] || translations.en[key];
+  const emailNeedsVerification = user?.providerData.some(provider => provider.providerId === 'password') && !user.emailVerified;
 
   useEffect(() => onAuthStateChanged(auth, currentUser => { setUser(currentUser); setAuthReady(true); }), []);
 
@@ -123,7 +128,9 @@ export default function App() {
   }, [authReady, login, authLoading, pendingAction, user]);
 
   const specialities = useMemo(() => [...new Set(doctors.map(d => d[1]))].sort(), []);
-  const hospitalNames = useMemo(() => [...new Set(doctors.map(d => d[2]))].sort(), []);
+  const hospitalNames = useMemo(() => [...new Set(doctors.map(d => d[2]))].sort(), [doctors]);
+  const areaNames = useMemo(() => [...new Set(hospitals.map(h => h[4]).filter(Boolean))].sort(), [hospitals]);
+  const hospitalByName = useMemo(() => new Map(hospitals.map(hospital => [hospital[0], hospital])), [hospitals]);
   const availableSpecialities = useMemo(() => {
     if (!form.hospital) return specialities;
     return [...new Set(doctors.filter(d => d[2] === form.hospital).map(d => d[1]))].sort();
@@ -133,8 +140,9 @@ export default function App() {
     .sort((first, second) => first[0].localeCompare(second[0])), [form.hospital]);
   const filtered = useMemo(() => doctors.filter(d => {
     const q = (query + ' ' + (selectedDoctor || '')).trim().toLowerCase();
-    return (!q || d.join(' ').toLowerCase().includes(q)) && (!docSpec || d[1] === docSpec) && (!docHospital || d[2] === docHospital);
-  }), [query, selectedDoctor, docSpec, docHospital]);
+    const hospital = hospitalByName.get(d[2]);
+    return (!q || d.join(' ').toLowerCase().includes(q)) && (!docSpec || d[1] === docSpec) && (!docHospital || d[2] === docHospital) && (!docArea || hospital?.[4] === docArea) && (!openNow || hospital?.[5]);
+  }), [query, selectedDoctor, docSpec, docHospital, docArea, openNow, hospitalByName]);
   const visible = filtered.slice(0, shown);
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
@@ -235,8 +243,20 @@ export default function App() {
       if (authMode === 'register') {
         const credential = await createUserWithEmailAndPassword(auth, authEmail.trim(), authPassword);
         await updateProfile(credential.user, { displayName: authUsername.trim() });
+        await sendEmailVerification(credential.user);
+        await signOut(auth);
+        setAuthError('Account created. Check your email and verify your address before logging in.');
+        setAuthMode('login');
+        setAuthUsername('');
+        setAuthPassword('');
+        return;
       } else {
-        await signInWithEmailAndPassword(auth, authEmail.trim(), authPassword);
+        const credential = await signInWithEmailAndPassword(auth, authEmail.trim(), authPassword);
+        if (!credential.user.emailVerified) {
+          await signOut(auth);
+          setAuthError('Please verify your email before booking. Check your inbox for the verification link.');
+          return;
+        }
       }
       setLogin(false);
       setAuthUsername('');
@@ -251,8 +271,27 @@ export default function App() {
         'auth/invalid-credential': 'Invalid email or password.',
         'auth/weak-password': 'Password must be at least 6 characters.',
         'auth/invalid-email': 'Please enter a valid email address.',
+        'auth/user-not-found': 'No account exists for this email address.',
+        'auth/too-many-requests': 'Too many attempts. Wait a moment and try again.',
       };
       setAuthError(messages[error.code] || error.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    if (!authEmail.trim()) {
+      setAuthError('Enter your email address first, then choose Forgot password.');
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, authEmail.trim());
+      setAuthError('Password reset email sent. Check your inbox.');
+    } catch (error) {
+      console.error(error);
+      setAuthError(error.code === 'auth/user-not-found' ? 'No account exists for this email address.' : 'Unable to send the reset email. Please try again.');
     } finally {
       setAuthLoading(false);
     }
@@ -291,8 +330,13 @@ export default function App() {
 
   const submit = e => {
     e.preventDefault();
-    if (!form.hospital || !form.doctor || !form.date || !form.time) {
-      setAuthError('Please complete hospital, doctor, date and time before continuing.');
+    const validationError = validateAppointment(form);
+    if (validationError) {
+      setAuthError(validationError);
+      return;
+    }
+    if (emailNeedsVerification) {
+      setAuthError('Verify your email address before booking an appointment.');
       return;
     }
     setAuthError('');
@@ -362,9 +406,13 @@ export default function App() {
     }
   };
 
+  if (directoryLoading) return <main className="admin-page"><div className="admin-empty"><span className="loading-spinner" />Loading the Khammam directory...</div></main>;
+
   return <>
     <header className="header"><div className="container nav"><a className="brand" href="#home"><span className="brand-icon">✚</span><span>Khammam<span>Care</span><small>Doctors & Hospitals</small></span></a><button className="menu-btn" onClick={() => setMenu(!menu)}>☰</button><nav className={menu ? 'open' : ''}><a href="#home">{t('home')}</a><a href="#hospitals">{t('hospitals')}</a><a href="#doctors">{t('doctors')}</a><a href="#appointment" onClick={event => { event.preventDefault(); setMenu(false); runAfterLogin(() => document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' })); }}>{t('appointment')}</a><a href="#about">{t('about')}</a><a href="/appointments">{t('myAppointments')}</a><button type="button" className="mobile-login" disabled={!authReady} onClick={() => { setMenu(false); user ? signOut(auth) : openLogin(); }}><UserRound aria-hidden="true" /><span>{authReady ? user ? `Logout · ${accountName}` : 'Login' : 'Checking...'}</span></button></nav><div className="nav-actions"><button type="button" className="outline-btn" onClick={() => setLanguage(current => current === 'en' ? 'te' : 'en')} aria-label="Switch language">{language === 'en' ? 'తెలుగు' : 'English'}</button><button type="button" className="outline-btn auth-nav-btn" aria-label={user ? `Logout ${accountName}` : authReady ? 'Login' : 'Checking authentication'} title={user ? `Logout ${accountName}` : authReady ? 'Login' : 'Checking authentication'} disabled={!authReady} onClick={user ? () => signOut(auth) : openLogin}><UserRound aria-hidden="true" />{user && <span className="auth-user-name">{accountName}</span>}<span className="auth-action-label">{authReady ? user ? 'Logout' : 'Login' : 'Checking...'}</span></button></div></div></header>
     <main>
+      {directoryError && <div className="offline-banner" role="status">{directoryError}</div>}
+      <section className="section emergency-section" id="emergency"><div className="container"><div className="section-head"><div><div className="eyebrow">EMERGENCY HELP</div><h2>Khammam emergency contacts</h2><p>Call first in an emergency. These public contacts are provided for quick access.</p></div></div><div className="emergency-grid">{emergencyFacilities.map(facility => <article className="emergency-card" key={`${facility.type}-${facility.name}`}><span className="tag">{facility.type}</span><h3>{facility.name}</h3><p>{facility.address}</p><a className="primary-btn" href={facility.action}>{facility.phone}</a></article>)}</div></div></section>
       <section className="hero" id="home">
         <div className="container hero-grid">
           <div>
@@ -405,16 +453,16 @@ export default function App() {
           </div>
         </div>
       </section>
-      <section className="search-wrap"><div className="container search-box"><div><label>Doctor / Hospital</label><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="e.g. cardiologist, Rakesh, Ankura" /></div><button className="primary-btn" onClick={() => { setShown(24); document.querySelector('#doctors')?.scrollIntoView({ behavior: 'smooth' }); }}>Search</button></div></section>
-      <section className="section" id="hospitals"><div className="container"><div className="section-head"><div><div className="eyebrow">LOCAL DIRECTORY</div><h2>Hospitals in Khammam</h2><p>Hospital names are carried over from the researched public directory sources used for this project.</p></div></div><div className="hospital-grid">{hospitals.map(h => { const count = doctors.filter(d => d[2] === h[0]).length; return <article className="hospital-card" key={h[0]}><img className="hospital-photo" src={hospitalPhotos[hospitals.indexOf(h) % hospitalPhotos.length]} alt={`${h[0]} hospital`} loading="lazy" /><div className="hospital-icon fallback-icon">🏥</div><span className="tag">{h[1]}</span><h3>{h[0]}</h3><p>📍 {h[2]}</p><p>{count} doctors currently listed in this directory.</p><div className="hospital-actions"><a className="map-btn" href={h[3] || maps(h[0])} target="_blank" rel="noreferrer">📍 Location</a><button className="book-btn" onClick={() => chooseHospital(h[0])}>Book</button></div></article>; })}</div></div></section>
-      <section className="section doctors-section" id="doctors"><div className="container"><div className="section-head center"><div><div className="eyebrow">DOCTOR DIRECTORY</div><h2>Doctors in Khammam</h2><p>Showing {visible.length} of {filtered.length} researched doctor records</p></div></div><div className="doctor-toolbar"><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="Search doctor name..." /><select value={docSpec} onChange={e => { setDocSpec(e.target.value); setShown(24); }}><option value="">All specialities</option>{specialities.map(s => <option key={s}>{s}</option>)}</select><select value={docHospital} onChange={e => { setDocHospital(e.target.value); setShown(24); }}><option value="">All hospitals</option>{hospitalNames.map(h => <option key={h}>{h}</option>)}</select></div><div className="doctor-grid">{visible.map(d => { const doctorRating = doctorRatings[d[0]]; return <article className="doctor-card" key={d.join('|')}><div className="avatar-wrap"><img className="doctor-photo" src={doctorPhotos[doctors.indexOf(d) % doctorPhotos.length]} alt={`${d[0]} profile`} loading="lazy" /><div className="avatar fallback-avatar">{initials(d[0])}</div></div><h3>{d[0]}</h3><div className="speciality">{d[1]}</div><div className="hospital">🏥 {d[2]}</div>{doctorRating ? <div className="doctor-rating">★ {(doctorRating.total / doctorRating.count).toFixed(1)} ({doctorRating.count})</div> : <div className="doctor-rating">No ratings yet</div>}<div className="verified">✓ Publicly listed</div><button onClick={() => chooseDoctor(d[0], d[2])}>{t('book')}</button></article>; })}</div>{shown < filtered.length && <button className="load-more" onClick={() => setShown(x => x + 24)}>Load more doctors</button>}</div></section>
+      <section className="search-wrap"><div className="container search-box"><div><label>Doctor / Hospital</label><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="e.g. cardiologist, Rakesh, Ankura" /></div><button className="primary-btn" onClick={() => { setShown(24); document.querySelector('#doctors')?.scrollIntoView({ behavior: 'smooth' }); }}>{t('search')}</button></div></section>
+      <section className="section" id="hospitals"><div className="container"><div className="section-head"><div><div className="eyebrow">LOCAL DIRECTORY</div><h2>Hospitals in Khammam</h2><p>Hospital names are carried over from the researched public directory sources used for this project.</p></div></div><div className="hospital-grid">{hospitals.filter(h => (!docArea || h[4] === docArea) && (!openNow || h[5])).map(h => { const count = doctors.filter(d => d[2] === h[0]).length; return <article className="hospital-card" key={h[0]}><img className="hospital-photo" src={hospitalPhotos[hospitals.indexOf(h) % hospitalPhotos.length]} alt={`${h[0]} hospital`} loading="lazy" /><div className="hospital-icon fallback-icon">🏥</div><span className="tag">{h[1]}</span><h3>{h[0]}</h3><p>📍 {h[2]}</p><p>{count} doctors currently listed in this directory.</p><div className="hospital-actions"><a className="map-btn" href={h[3] || maps(h[0])} target="_blank" rel="noreferrer">📍 Location</a><button className="book-btn" onClick={() => chooseHospital(h[0])}>Book</button></div></article>; })}</div></div></section>
+      <section className="section doctors-section" id="doctors"><div className="container"><div className="section-head center"><div><div className="eyebrow">DOCTOR DIRECTORY</div><h2>Doctors in Khammam</h2><p>Showing {visible.length} of {filtered.length} researched doctor records</p></div></div><div className="doctor-toolbar"><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="Search doctor name..." /><select value={docSpec} onChange={e => { setDocSpec(e.target.value); setShown(24); }}><option value="">All specialities</option>{specialities.map(s => <option key={s}>{s}</option>)}</select><select value={docHospital} onChange={e => { setDocHospital(e.target.value); setShown(24); }}><option value="">All hospitals</option>{hospitalNames.map(h => <option key={h}>{h}</option>)}</select><select value={docArea} onChange={e => { setDocArea(e.target.value); setShown(24); }}><option value="">All areas</option>{areaNames.map(area => <option key={area}>{area}</option>)}</select><label className="filter-check"><input type="checkbox" checked={openNow} onChange={e => setOpenNow(e.target.checked)} /> Open now</label></div><div className="doctor-grid">{visible.map(d => { const doctorRating = doctorRatings[d[0]]; return <article className="doctor-card" key={d.join('|')}><div className="avatar-wrap"><img className="doctor-photo" src={doctorPhotos[doctors.indexOf(d) % doctorPhotos.length]} alt={`${d[0]} profile`} loading="lazy" /><div className="avatar fallback-avatar">{initials(d[0])}</div></div><h3>{d[0]}</h3><div className="speciality">{d[1]}</div><div className="hospital">🏥 {d[2]}</div>{doctorRating ? <div className="doctor-rating">★ {(doctorRating.total / doctorRating.count).toFixed(1)} ({doctorRating.count})</div> : <div className="doctor-rating">No ratings yet</div>}<div className="verified">✓ Publicly listed</div><button onClick={() => chooseDoctor(d[0], d[2])}>{t('book')}</button></article>; })}</div>{shown < filtered.length && <button className="load-more" onClick={() => setShown(x => x + 24)}>Load more doctors</button>}</div></section>
       <section className="section appointment-section" id="appointment"><div className="container appointment-grid"><div className="appointment-info"><div className="eyebrow">APPOINTMENT REQUEST</div><h2>Book a consultation with your selected doctor.</h2><p>This version uses Firebase Authentication and Firestore. After the demo payment step, the appointment is saved to the <b>appointments</b> collection.</p><div className="info-list"><div>✓ Login/Register with Firebase</div><div>✓ Select hospital and doctor</div><div>✓ Choose date and time</div><div>✓ Demo payment step</div><div>✓ Appointment saved in Firestore</div></div></div><form className="form-card" onSubmit={submit}><div className="form-row"><div><label>Patient name</label><input value={form.name} onChange={e => update('name', e.target.value)} required /></div><div><label>Phone</label><input value={form.phone} onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} pattern="[0-9]{10}" required /></div></div><div className="form-row"><div><label>Patient age</label><input type="number" min="1" max="120" value={form.age} onChange={e => update('age', e.target.value)} placeholder="e.g. 32" required /></div><div><label>Hospital</label><select value={form.hospital} onChange={e => { const hospital = e.target.value; update('hospital', hospital); if (form.doctor && !doctors.some(d => d[2] === hospital && d[0] === form.doctor)) update('doctor', ''); }} required><option value="">Select hospital</option>{hospitals.map(h => <option key={h[0]}>{h[0]}</option>)}</select></div></div><div className="form-row"><div><label>{t('selectDoctor')}</label><select value={form.doctor} onChange={e => update('doctor', e.target.value)} required><option value="">{form.hospital ? t('selectDoctor') : t('selectDoctor')}</option>{availableDoctors.map(d => <option key={d[0]} value={d[0]}>{d[0]} · {d[1]}</option>)}</select></div><div><label>Date</label><input type="date" min={new Date().toISOString().split('T')[0]} value={form.date} onChange={e => update('date', e.target.value)} required /></div></div><div><label>{t('timeSlot')}</label><select value={form.time} onChange={e => update('time', e.target.value)} required><option value="">{t('selectTime')}</option>{timeSlots.map(slot => <option key={slot} value={slot} disabled={reservedSlots.includes(slot)}>{slot}{reservedSlots.includes(slot) ? ' · Booked' : ''}</option>)}</select>{reservedSlots.length > 0 && <small>{reservedSlots.length} slot(s) are already booked for this doctor on the selected date.</small>}</div><div><label>Reason / symptoms</label><textarea rows="3" value={form.reason} onChange={e => update('reason', e.target.value)} placeholder="Optional" /></div>{authError && <p className="login-error" role="alert">{authError}</p>}<button className="primary-btn full" type="submit">{user ? 'Continue to payment →' : 'Login to continue →'}</button></form></div></section>
       <section className="section about" id="direct-book"><div className="container"><div className="about-card"><div><div className="eyebrow">NO CONTACTS? NO PROBLEM</div><h2>Don’t know anyone directly?</h2><p>You can request an appointment through KhammamCare without a personal referral. Choose a hospital, select a doctor and time, then submit your request online.</p></div><div className="source-note"><h3>Book in 3 steps</h3><div className="booking-steps"><div className="booking-step"><Building2 aria-hidden="true" /><span>Choose a hospital</span></div><div className="booking-step"><Stethoscope aria-hidden="true" /><span>Select a doctor and visit time</span></div><div className="booking-step"><CalendarCheck aria-hidden="true" /><span>Review and submit your request</span></div></div><a href="#appointment" className="primary-btn" onClick={event => { event.preventDefault(); runAfterLogin(() => document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' })); }}>Book appointment</a></div></div></div></section>
       <section className="section" id="about"><div className="container"><div className="about-card"><div><div className="eyebrow">ABOUT THIS WEBSITE</div><h2>A healthcare website for Khammam.</h2><p>KhammamCare is a website where people can explore listed doctors and hospitals in Khammam, search by speciality, open hospital locations in Google Maps, and send appointment requests. It is built with React and Vite, uses Firebase Authentication for accounts, and stores appointments in Cloud Firestore. Checkout is a demo only; no real payment is processed.</p></div><div className="tech-list"><span>React</span><span>Vite</span><span>JavaScript</span><span>Firebase Authentication</span><span>Cloud Firestore</span><span>Responsive CSS</span><span>Google Maps links</span></div></div></div></section>
     </main>
     <footer><div className="container">© 2026 KhammamCare • React + Firebase student project</div></footer>
 
-    {login && <Modal className="login-modal" onClose={closeLogin}><button type="button" className="modal-close" aria-label="Close login" onClick={closeLogin}>×</button><div id="phone-recaptcha" /> <div className="login-mark"><LogIn aria-hidden="true" /></div><div className="eyebrow">KHAMMAMCARE ACCOUNT</div><h2>{authMethod === 'phone' ? 'Login with OTP' : authMode === 'login' ? 'Welcome back' : 'Create account'}</h2><p className="login-intro">{authMethod === 'phone' ? 'Enter your mobile number to receive a one-time password.' : authMode === 'login' ? 'Sign in to continue with your appointment.' : 'Create an account to continue with your appointment.'}</p>{authMethod === 'phone' ? <form className="login-form" onSubmit={otpSent ? verifyPhoneOtp : handleAuth}><label htmlFor="auth-phone">Mobile number</label><input id="auth-phone" placeholder="e.g. 9876543210" type="tel" value={authPhone} onChange={e => setAuthPhone(e.target.value)} required /><div className="auth-method-switch"><button type="button" className="card-link" onClick={() => { setAuthMethod('email'); setAuthError(''); resetPhoneAuth(); }}>Use email login</button></div>{authError && <p className="login-error" role="alert">{authError}</p>}{otpSent ? <><label htmlFor="auth-otp">OTP</label><input id="auth-otp" placeholder="Enter 6-digit OTP" inputMode="numeric" value={authOtp} onChange={e => setAuthOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} required /><button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Verifying...' : 'Verify OTP'}</button></> : <button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Sending OTP...' : 'Send OTP'}</button>}</form> : <form className="login-form" onSubmit={handleAuth}>{authMode === 'register' && <><label htmlFor="auth-username">Username</label><input id="auth-username" placeholder="Your name" type="text" autoComplete="nickname" value={authUsername} onChange={e => setAuthUsername(e.target.value)} minLength="2" maxLength="40" required /></>}<label htmlFor="auth-email">Email address</label><input id="auth-email" placeholder="you@example.com" type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required /><label htmlFor="auth-password">Password</label><input id="auth-password" placeholder="At least 6 characters" type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} minLength="6" required />{authError && <p className="login-error" role="alert">{authError}</p>}<button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Please wait...' : authMode === 'login' ? 'Login' : 'Create account'}</button><div className="auth-method-switch"><button type="button" className="card-link" onClick={() => { setAuthMethod('phone'); setAuthError(''); resetPhoneAuth(); }}>Use phone OTP</button></div></form>}<p className="login-switch">{authMethod === 'phone' ? 'Need email login?' : authMode === 'login' ? 'New patient?' : 'Already have an account?'} <button type="button" className="card-link" onClick={() => {
+    {login && <Modal className="login-modal" onClose={closeLogin}><button type="button" className="modal-close" aria-label="Close login" onClick={closeLogin}>×</button><div id="phone-recaptcha" /> <div className="login-mark"><LogIn aria-hidden="true" /></div><div className="eyebrow">KHAMMAMCARE ACCOUNT</div><h2>{authMethod === 'phone' ? 'Login with OTP' : authMode === 'login' ? 'Welcome back' : 'Create account'}</h2><p className="login-intro">{authMethod === 'phone' ? 'Enter your mobile number to receive a one-time password.' : authMode === 'login' ? 'Sign in to continue with your appointment.' : 'Create an account to continue with your appointment.'}</p>{authMethod === 'phone' ? <form className="login-form" onSubmit={otpSent ? verifyPhoneOtp : handleAuth}><label htmlFor="auth-phone">Mobile number</label><input id="auth-phone" placeholder="e.g. 9876543210" type="tel" value={authPhone} onChange={e => setAuthPhone(e.target.value)} required /><div className="auth-method-switch"><button type="button" className="card-link" onClick={() => { setAuthMethod('email'); setAuthError(''); resetPhoneAuth(); }}>Use email login</button></div>{authError && <p className="login-error" role="alert">{authError}</p>}{otpSent ? <><label htmlFor="auth-otp">OTP</label><input id="auth-otp" placeholder="Enter 6-digit OTP" inputMode="numeric" value={authOtp} onChange={e => setAuthOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} required /><button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Verifying...' : 'Verify OTP'}</button></> : <button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Sending OTP...' : 'Send OTP'}</button>}</form> : <form className="login-form" onSubmit={handleAuth}>{authMode === 'register' && <><label htmlFor="auth-username">Username</label><input id="auth-username" placeholder="Your name" type="text" autoComplete="nickname" value={authUsername} onChange={e => setAuthUsername(e.target.value)} minLength="2" maxLength="40" required /></>}<label htmlFor="auth-email">Email address</label><input id="auth-email" placeholder="you@example.com" type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required /><label htmlFor="auth-password">Password</label><input id="auth-password" placeholder="At least 6 characters" type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} minLength="6" required />{authError && <p className="login-error" role="alert">{authError}</p>}<button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Please wait...' : authMode === 'login' ? 'Login' : 'Create account'}</button>{authMode === 'login' && <button type="button" className="card-link forgot-link" onClick={resetPassword} disabled={authLoading}>Forgot password?</button>}<div className="auth-method-switch"><button type="button" className="card-link" onClick={() => { setAuthMethod('phone'); setAuthError(''); resetPhoneAuth(); }}>Use phone OTP</button></div></form>}<p className="login-switch">{authMethod === 'phone' ? 'Need email login?' : authMode === 'login' ? 'New patient?' : 'Already have an account?'} <button type="button" className="card-link" onClick={() => {
           if (authMethod === 'phone') {
             setAuthMethod('email');
             setAuthError('');

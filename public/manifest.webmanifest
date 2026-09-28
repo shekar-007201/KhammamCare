@@ -1,0 +1,17 @@
+{
+    "name": "KhammamCare",
+    "short_name": "KhammamCare",
+    "description": "Doctors, hospitals and emergency contacts in Khammam.",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f5f8fc",
+    "theme_color": "#087fdb",
+    "icons": [
+        {
+            "src": "/me.jpg",
+            "sizes": "512x512",
+            "type": "image/jpeg",
+            "purpose": "any maskable"
+        }
+    ]
+}

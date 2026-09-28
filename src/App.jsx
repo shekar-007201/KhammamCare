@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Building2, CalendarCheck, CreditCard, Landmark, LogIn, Smartphone, Stethoscope, UserRound } from 'lucide-react';
 import { doctors, hospitals } from './data.js';
 import { auth, db } from './firebase.js';
+import profilePhoto from '../me.jpg';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
@@ -316,7 +317,7 @@ export default function App() {
             <div className="hero-card-top"><span>KHAMMAMCARE</span></div>
             <div className="medical-art">🩺</div>
             <div className="support-panel">
-              <div className="support-avatar"><img src="/me.png" alt="Shekar profile" /></div>
+              <div className="support-avatar"><img src={profilePhoto} alt="Shekar profile" /></div>
               <div className="support-info">
                 <div className="support-heading">Need support for this website?</div>
                 <div className="support-name">Shekar.ch</div>

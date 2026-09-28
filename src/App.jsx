@@ -12,12 +12,16 @@ import {
   signOut,
   updateProfile,
 } from 'firebase/auth';
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 
 const initials = name => name.replace('Dr. ', '').split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase();
 const maps = name => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' Khammam')}`;
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 const APPOINTMENT_FEE = 399;
+const translations = {
+  en: { home: 'Home', hospitals: 'Hospitals', doctors: 'Doctors', appointment: 'Appointment', about: 'About', myAppointments: 'My Appointments', search: 'Search', book: 'Book with doctor', selectDoctor: 'Select doctor', timeSlot: 'Time slot', selectTime: 'Select time' },
+  te: { home: 'హోమ్', hospitals: 'ఆసుపత్రులు', doctors: 'వైద్యులు', appointment: 'అపాయింట్‌మెంట్', about: 'మా గురించి', myAppointments: 'నా అపాయింట్‌మెంట్లు', search: 'వెతకండి', book: 'వైద్యుడిని ఎంచుకోండి', selectDoctor: 'వైద్యుడిని ఎంచుకోండి', timeSlot: 'సమయ స్లాట్', selectTime: 'సమయాన్ని ఎంచుకోండి' },
+};
 
 const downloadReceipt = receipt => {
   const bookedAt = new Date(receipt.bookedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
@@ -67,9 +71,43 @@ export default function App() {
   const [user, setUser] = useState(null), [authReady, setAuthReady] = useState(false), [pendingAction, setPendingAction] = useState(null);
   const [payment, setPayment] = useState(null), [paymentMode, setPaymentMode] = useState('UPI'), [paymentInput, setPaymentInput] = useState(''), [success, setSuccess] = useState(null), [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', age: '', hospital: '', doctor: '', date: '', time: '', reason: '' });
+  const [reservedSlots, setReservedSlots] = useState([]);
+  const [language, setLanguage] = useState('en'), [doctorRatings, setDoctorRatings] = useState({});
   const accountName = user?.displayName?.trim() || user?.email?.split('@')[0] || 'Account';
+  const t = key => translations[language][key] || translations.en[key];
 
   useEffect(() => onAuthStateChanged(auth, currentUser => { setUser(currentUser); setAuthReady(true); }), []);
+
+  useEffect(() => onSnapshot(collection(db, 'ratings'), snapshot => {
+    const totals = {};
+    snapshot.docs.forEach(item => {
+      const data = item.data();
+      if (!data.doctor || !data.rating) return;
+      totals[data.doctor] ||= { total: 0, count: 0 };
+      totals[data.doctor].total += data.rating;
+      totals[data.doctor].count += 1;
+    });
+    setDoctorRatings(totals);
+  }, error => console.error('Rating load failed:', error)), []);
+
+  useEffect(() => {
+    if (!user || !form.doctor || !form.date) {
+      setReservedSlots([]);
+      return undefined;
+    }
+    const slotsQuery = query(
+      collection(db, 'slotReservations'),
+      where('doctor', '==', form.doctor),
+      where('date', '==', form.date),
+      where('status', '==', 'reserved'),
+    );
+    return onSnapshot(slotsQuery, snapshot => {
+      setReservedSlots(snapshot.docs.map(slot => slot.data().time));
+    }, error => {
+      console.error(error);
+      setReservedSlots([]);
+    });
+  }, [user, form.doctor, form.date]);
 
   useEffect(() => {
     if (!authReady || login || authLoading || !pendingAction) return;
@@ -90,6 +128,9 @@ export default function App() {
     if (!form.hospital) return specialities;
     return [...new Set(doctors.filter(d => d[2] === form.hospital).map(d => d[1]))].sort();
   }, [form.hospital, specialities]);
+  const availableDoctors = useMemo(() => doctors
+    .filter(d => !form.hospital || d[2] === form.hospital)
+    .sort((first, second) => first[0].localeCompare(second[0])), [form.hospital]);
   const filtered = useMemo(() => doctors.filter(d => {
     const q = (query + ' ' + (selectedDoctor || '')).trim().toLowerCase();
     return (!q || d.join(' ').toLowerCase().includes(q)) && (!docSpec || d[1] === docSpec) && (!docHospital || d[2] === docHospital);
@@ -148,7 +189,7 @@ export default function App() {
   };
 
   const chooseHospital = h => runAfterLogin(() => { setSelectedHospital(h); update('hospital', h); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); });
-  const chooseDoctor = (d, h, speciality) => runAfterLogin(() => { setSelectedDoctor(d); update('doctor', speciality); update('hospital', h); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); });
+  const chooseDoctor = (d, h) => runAfterLogin(() => { setSelectedDoctor(d); update('doctor', d); update('hospital', h); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); });
 
   const handleAuth = async e => {
     e.preventDefault();
@@ -270,31 +311,59 @@ export default function App() {
     }
     setSaving(true);
     const token = 'KHM-' + Math.floor(1000 + Math.random() * 9000);
+    const slotId = [form.doctor, form.date, form.time].map(value => encodeURIComponent(value)).join('__');
     try {
-      await addDoc(collection(db, 'appointments'), {
-        ...form,
-        userId: user.uid,
-        userEmail: user.email,
-        amount: APPOINTMENT_FEE,
-        paymentMode,
-        paymentStatus: 'demo-paid',
-        token,
-        status: 'confirmed',
-        createdAt: serverTimestamp(),
+      const appointmentRef = doc(collection(db, 'appointments'));
+      const slotRef = doc(db, 'slotReservations', slotId);
+      await runTransaction(db, async transaction => {
+        const slotSnapshot = await transaction.get(slotRef);
+        if (slotSnapshot.exists() && slotSnapshot.data().status === 'reserved') {
+          const error = new Error('This time slot was just booked by another patient. Please choose another slot.');
+          error.code = 'slot-taken';
+          throw error;
+        }
+        transaction.set(slotRef, {
+          doctor: form.doctor,
+          date: form.date,
+          time: form.time,
+          userId: user.uid,
+          appointmentId: appointmentRef.id,
+          status: 'reserved',
+          createdAt: serverTimestamp(),
+        });
+        transaction.set(appointmentRef, {
+          ...form,
+          userId: user.uid,
+          userEmail: user.email,
+          amount: APPOINTMENT_FEE,
+          paymentMode,
+          paymentStatus: 'demo-paid',
+          token,
+          status: 'confirmed',
+          slotId,
+          notification: { type: 'booking-confirmation', status: 'pending', email: user.email, phone: form.phone },
+          paymentProvider: 'demo',
+          createdAt: serverTimestamp(),
+        });
       });
       setPayment(false);
       setSuccess({ ...form, amount: APPOINTMENT_FEE, payment: `${paymentMode} (demo)`, token, bookedAt: new Date().toISOString() });
       setForm({ name: '', phone: '', age: '', hospital: '', doctor: '', date: '', time: '', reason: '' }); setPaymentInput(''); setPaymentMode('UPI');
     } catch (error) {
       console.error(error);
-      alert('Appointment save failed. Check Firebase Firestore setup and rules.');
+      if (error.code === 'slot-taken') {
+        setPayment(false);
+        setAuthError(error.message);
+      } else {
+        alert('Appointment save failed. Check Firebase Firestore setup and rules.');
+      }
     } finally {
       setSaving(false);
     }
   };
 
   return <>
-    <header className="header"><div className="container nav"><a className="brand" href="#home"><span className="brand-icon">✚</span><span>Khammam<span>Care</span><small>Doctors & Hospitals</small></span></a><button className="menu-btn" onClick={() => setMenu(!menu)}>☰</button><nav className={menu ? 'open' : ''}><a href="#home">Home</a><a href="#hospitals">Hospitals</a><a href="#doctors">Doctors</a><a href="#appointment" onClick={event => { event.preventDefault(); setMenu(false); runAfterLogin(() => document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' })); }}>Appointment</a><a href="#about">About</a><button type="button" className="mobile-login" disabled={!authReady} onClick={() => { setMenu(false); user ? signOut(auth) : openLogin(); }}><UserRound aria-hidden="true" /><span>{authReady ? user ? `Logout · ${accountName}` : 'Login' : 'Checking...'}</span></button></nav><div className="nav-actions"><button type="button" className="outline-btn auth-nav-btn" aria-label={user ? `Logout ${accountName}` : authReady ? 'Login' : 'Checking authentication'} title={user ? `Logout ${accountName}` : authReady ? 'Login' : 'Checking authentication'} disabled={!authReady} onClick={user ? () => signOut(auth) : openLogin}><UserRound aria-hidden="true" />{user && <span className="auth-user-name">{accountName}</span>}<span className="auth-action-label">{authReady ? user ? 'Logout' : 'Login' : 'Checking...'}</span></button></div></div></header>
+    <header className="header"><div className="container nav"><a className="brand" href="#home"><span className="brand-icon">✚</span><span>Khammam<span>Care</span><small>Doctors & Hospitals</small></span></a><button className="menu-btn" onClick={() => setMenu(!menu)}>☰</button><nav className={menu ? 'open' : ''}><a href="#home">{t('home')}</a><a href="#hospitals">{t('hospitals')}</a><a href="#doctors">{t('doctors')}</a><a href="#appointment" onClick={event => { event.preventDefault(); setMenu(false); runAfterLogin(() => document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' })); }}>{t('appointment')}</a><a href="#about">{t('about')}</a><a href="/appointments">{t('myAppointments')}</a><button type="button" className="mobile-login" disabled={!authReady} onClick={() => { setMenu(false); user ? signOut(auth) : openLogin(); }}><UserRound aria-hidden="true" /><span>{authReady ? user ? `Logout · ${accountName}` : 'Login' : 'Checking...'}</span></button></nav><div className="nav-actions"><button type="button" className="outline-btn" onClick={() => setLanguage(current => current === 'en' ? 'te' : 'en')} aria-label="Switch language">{language === 'en' ? 'తెలుగు' : 'English'}</button><button type="button" className="outline-btn auth-nav-btn" aria-label={user ? `Logout ${accountName}` : authReady ? 'Login' : 'Checking authentication'} title={user ? `Logout ${accountName}` : authReady ? 'Login' : 'Checking authentication'} disabled={!authReady} onClick={user ? () => signOut(auth) : openLogin}><UserRound aria-hidden="true" />{user && <span className="auth-user-name">{accountName}</span>}<span className="auth-action-label">{authReady ? user ? 'Logout' : 'Login' : 'Checking...'}</span></button></div></div></header>
     <main>
       <section className="hero" id="home">
         <div className="container hero-grid">
@@ -338,8 +407,8 @@ export default function App() {
       </section>
       <section className="search-wrap"><div className="container search-box"><div><label>Doctor / Hospital</label><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="e.g. cardiologist, Rakesh, Ankura" /></div><button className="primary-btn" onClick={() => { setShown(24); document.querySelector('#doctors')?.scrollIntoView({ behavior: 'smooth' }); }}>Search</button></div></section>
       <section className="section" id="hospitals"><div className="container"><div className="section-head"><div><div className="eyebrow">LOCAL DIRECTORY</div><h2>Hospitals in Khammam</h2><p>Hospital names are carried over from the researched public directory sources used for this project.</p></div></div><div className="hospital-grid">{hospitals.map(h => { const count = doctors.filter(d => d[2] === h[0]).length; return <article className="hospital-card" key={h[0]}><img className="hospital-photo" src={hospitalPhotos[hospitals.indexOf(h) % hospitalPhotos.length]} alt={`${h[0]} hospital`} loading="lazy" /><div className="hospital-icon fallback-icon">🏥</div><span className="tag">{h[1]}</span><h3>{h[0]}</h3><p>📍 {h[2]}</p><p>{count} doctors currently listed in this directory.</p><div className="hospital-actions"><a className="map-btn" href={h[3] || maps(h[0])} target="_blank" rel="noreferrer">📍 Location</a><button className="book-btn" onClick={() => chooseHospital(h[0])}>Book</button></div></article>; })}</div></div></section>
-      <section className="section doctors-section" id="doctors"><div className="container"><div className="section-head center"><div><div className="eyebrow">DOCTOR DIRECTORY</div><h2>Doctors in Khammam</h2><p>Showing {visible.length} of {filtered.length} researched doctor records</p></div></div><div className="doctor-toolbar"><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="Search doctor name..." /><select value={docSpec} onChange={e => { setDocSpec(e.target.value); setShown(24); }}><option value="">All specialities</option>{specialities.map(s => <option key={s}>{s}</option>)}</select><select value={docHospital} onChange={e => { setDocHospital(e.target.value); setShown(24); }}><option value="">All hospitals</option>{hospitalNames.map(h => <option key={h}>{h}</option>)}</select></div><div className="doctor-grid">{visible.map(d => <article className="doctor-card" key={d.join('|')}><div className="avatar-wrap"><img className="doctor-photo" src={doctorPhotos[doctors.indexOf(d) % doctorPhotos.length]} alt={`${d[0]} profile`} loading="lazy" /><div className="avatar fallback-avatar">{initials(d[0])}</div></div><h3>{d[0]}</h3><div className="speciality">{d[1]}</div><div className="hospital">🏥 {d[2]}</div><div className="verified">✓ Publicly listed</div><button onClick={() => chooseDoctor(d[0], d[2], d[1])}>Book with doctor</button></article>)}</div>{shown < filtered.length && <button className="load-more" onClick={() => setShown(x => x + 24)}>Load more doctors</button>}</div></section>
-      <section className="section appointment-section" id="appointment"><div className="container appointment-grid"><div className="appointment-info"><div className="eyebrow">APPOINTMENT REQUEST</div><h2>Book a consultation with your selected doctor.</h2><p>This version uses Firebase Authentication and Firestore. After the demo payment step, the appointment is saved to the <b>appointments</b> collection.</p><div className="info-list"><div>✓ Login/Register with Firebase</div><div>✓ Select hospital and doctor</div><div>✓ Choose date and time</div><div>✓ Demo payment step</div><div>✓ Appointment saved in Firestore</div></div></div><form className="form-card" onSubmit={submit}><div className="form-row"><div><label>Patient name</label><input value={form.name} onChange={e => update('name', e.target.value)} required /></div><div><label>Phone</label><input value={form.phone} onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} pattern="[0-9]{10}" required /></div></div><div className="form-row"><div><label>Patient age</label><input type="number" min="1" max="120" value={form.age} onChange={e => update('age', e.target.value)} placeholder="e.g. 32" required /></div><div><label>Hospital</label><select value={form.hospital} onChange={e => { const hospital = e.target.value; update('hospital', hospital); if (form.doctor && !doctors.some(d => d[2] === hospital && d[1] === form.doctor)) update('doctor', ''); }} required><option value="">Select hospital</option>{hospitals.map(h => <option key={h[0]}>{h[0]}</option>)}</select></div></div><div className="form-row"><div><label>Profession / speciality</label><select value={form.doctor} onChange={e => update('doctor', e.target.value)} required><option value="">{form.hospital ? 'Select available profession' : 'Select profession'}</option>{availableSpecialities.map(s => <option key={s} value={s}>{s}</option>)}</select></div><div><label>Date</label><input type="date" min={new Date().toISOString().split('T')[0]} value={form.date} onChange={e => update('date', e.target.value)} required /></div></div><div><label>Time slot</label><select value={form.time} onChange={e => update('time', e.target.value)} required><option value="">Select time</option>{timeSlots.map(slot => <option key={slot} value={slot}>{slot}</option>)}</select></div><div><label>Reason / symptoms</label><textarea rows="3" value={form.reason} onChange={e => update('reason', e.target.value)} placeholder="Optional" /></div><button className="primary-btn full" type="submit">{user ? 'Continue to payment →' : 'Login to continue →'}</button></form></div></section>
+      <section className="section doctors-section" id="doctors"><div className="container"><div className="section-head center"><div><div className="eyebrow">DOCTOR DIRECTORY</div><h2>Doctors in Khammam</h2><p>Showing {visible.length} of {filtered.length} researched doctor records</p></div></div><div className="doctor-toolbar"><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="Search doctor name..." /><select value={docSpec} onChange={e => { setDocSpec(e.target.value); setShown(24); }}><option value="">All specialities</option>{specialities.map(s => <option key={s}>{s}</option>)}</select><select value={docHospital} onChange={e => { setDocHospital(e.target.value); setShown(24); }}><option value="">All hospitals</option>{hospitalNames.map(h => <option key={h}>{h}</option>)}</select></div><div className="doctor-grid">{visible.map(d => { const doctorRating = doctorRatings[d[0]]; return <article className="doctor-card" key={d.join('|')}><div className="avatar-wrap"><img className="doctor-photo" src={doctorPhotos[doctors.indexOf(d) % doctorPhotos.length]} alt={`${d[0]} profile`} loading="lazy" /><div className="avatar fallback-avatar">{initials(d[0])}</div></div><h3>{d[0]}</h3><div className="speciality">{d[1]}</div><div className="hospital">🏥 {d[2]}</div>{doctorRating ? <div className="doctor-rating">★ {(doctorRating.total / doctorRating.count).toFixed(1)} ({doctorRating.count})</div> : <div className="doctor-rating">No ratings yet</div>}<div className="verified">✓ Publicly listed</div><button onClick={() => chooseDoctor(d[0], d[2])}>{t('book')}</button></article>; })}</div>{shown < filtered.length && <button className="load-more" onClick={() => setShown(x => x + 24)}>Load more doctors</button>}</div></section>
+      <section className="section appointment-section" id="appointment"><div className="container appointment-grid"><div className="appointment-info"><div className="eyebrow">APPOINTMENT REQUEST</div><h2>Book a consultation with your selected doctor.</h2><p>This version uses Firebase Authentication and Firestore. After the demo payment step, the appointment is saved to the <b>appointments</b> collection.</p><div className="info-list"><div>✓ Login/Register with Firebase</div><div>✓ Select hospital and doctor</div><div>✓ Choose date and time</div><div>✓ Demo payment step</div><div>✓ Appointment saved in Firestore</div></div></div><form className="form-card" onSubmit={submit}><div className="form-row"><div><label>Patient name</label><input value={form.name} onChange={e => update('name', e.target.value)} required /></div><div><label>Phone</label><input value={form.phone} onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} pattern="[0-9]{10}" required /></div></div><div className="form-row"><div><label>Patient age</label><input type="number" min="1" max="120" value={form.age} onChange={e => update('age', e.target.value)} placeholder="e.g. 32" required /></div><div><label>Hospital</label><select value={form.hospital} onChange={e => { const hospital = e.target.value; update('hospital', hospital); if (form.doctor && !doctors.some(d => d[2] === hospital && d[0] === form.doctor)) update('doctor', ''); }} required><option value="">Select hospital</option>{hospitals.map(h => <option key={h[0]}>{h[0]}</option>)}</select></div></div><div className="form-row"><div><label>{t('selectDoctor')}</label><select value={form.doctor} onChange={e => update('doctor', e.target.value)} required><option value="">{form.hospital ? t('selectDoctor') : t('selectDoctor')}</option>{availableDoctors.map(d => <option key={d[0]} value={d[0]}>{d[0]} · {d[1]}</option>)}</select></div><div><label>Date</label><input type="date" min={new Date().toISOString().split('T')[0]} value={form.date} onChange={e => update('date', e.target.value)} required /></div></div><div><label>{t('timeSlot')}</label><select value={form.time} onChange={e => update('time', e.target.value)} required><option value="">{t('selectTime')}</option>{timeSlots.map(slot => <option key={slot} value={slot} disabled={reservedSlots.includes(slot)}>{slot}{reservedSlots.includes(slot) ? ' · Booked' : ''}</option>)}</select>{reservedSlots.length > 0 && <small>{reservedSlots.length} slot(s) are already booked for this doctor on the selected date.</small>}</div><div><label>Reason / symptoms</label><textarea rows="3" value={form.reason} onChange={e => update('reason', e.target.value)} placeholder="Optional" /></div>{authError && <p className="login-error" role="alert">{authError}</p>}<button className="primary-btn full" type="submit">{user ? 'Continue to payment →' : 'Login to continue →'}</button></form></div></section>
       <section className="section about" id="direct-book"><div className="container"><div className="about-card"><div><div className="eyebrow">NO CONTACTS? NO PROBLEM</div><h2>Don’t know anyone directly?</h2><p>You can request an appointment through KhammamCare without a personal referral. Choose a hospital, select a doctor and time, then submit your request online.</p></div><div className="source-note"><h3>Book in 3 steps</h3><div className="booking-steps"><div className="booking-step"><Building2 aria-hidden="true" /><span>Choose a hospital</span></div><div className="booking-step"><Stethoscope aria-hidden="true" /><span>Select a doctor and visit time</span></div><div className="booking-step"><CalendarCheck aria-hidden="true" /><span>Review and submit your request</span></div></div><a href="#appointment" className="primary-btn" onClick={event => { event.preventDefault(); runAfterLogin(() => document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' })); }}>Book appointment</a></div></div></div></section>
       <section className="section" id="about"><div className="container"><div className="about-card"><div><div className="eyebrow">ABOUT THIS WEBSITE</div><h2>A healthcare website for Khammam.</h2><p>KhammamCare is a website where people can explore listed doctors and hospitals in Khammam, search by speciality, open hospital locations in Google Maps, and send appointment requests. It is built with React and Vite, uses Firebase Authentication for accounts, and stores appointments in Cloud Firestore. Checkout is a demo only; no real payment is processed.</p></div><div className="tech-list"><span>React</span><span>Vite</span><span>JavaScript</span><span>Firebase Authentication</span><span>Cloud Firestore</span><span>Responsive CSS</span><span>Google Maps links</span></div></div></div></section>
     </main>

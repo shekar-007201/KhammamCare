@@ -1509,6 +1509,14 @@ footer {
     font: inherit
 }
 
+.admin-toolbar select {
+    border: 1px solid #dbe2eb;
+    border-radius: 9px;
+    padding: 11px 13px;
+    background: #fff;
+    font: inherit
+}
+
 .admin-table-wrap {
     overflow: auto
 }
@@ -1582,6 +1590,77 @@ footer {
     font-weight: 700
 }
 
+.patient-appointments {
+    max-width: 1400px;
+    margin: 24px auto 0;
+    display: grid;
+    gap: 14px
+}
+
+.patient-appointment {
+    background: #fff;
+    border: 1px solid #e6edf5;
+    border-radius: 15px;
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    box-shadow: 0 7px 22px #16466d0a
+}
+
+.patient-appointment h2 {
+    margin: 10px 0 5px;
+    font-size: 20px
+}
+
+.patient-appointment p {
+    margin: 5px 0;
+    color: #697586
+}
+
+.patient-appointment small {
+    display: block;
+    margin-top: 12px;
+    color: #8b96a8
+}
+
+.patient-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 9px
+}
+
+.doctor-rating {
+    color: #c27c00;
+    font-size: 12px;
+    font-weight: 800;
+    margin: 8px 0
+}
+
+.rating-control {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    color: #697586;
+    font-size: 12px;
+    font-weight: 700
+}
+
+.rating-control button {
+    border: 0;
+    background: transparent;
+    color: #cbd5e1;
+    padding: 2px;
+    cursor: pointer;
+    font-size: 21px
+}
+
+.rating-control button.active {
+    color: #e69a14
+}
+
 @media(max-width:800px) {
     .admin-topbar {
         align-items: flex-start;
@@ -1593,6 +1672,12 @@ footer {
     .admin-toolbar {
         align-items: stretch;
         flex-direction: column
+    }
+    .patient-appointment {
+        flex-direction: column
+    }
+    .patient-actions {
+        justify-content: flex-start
     }
 }
 

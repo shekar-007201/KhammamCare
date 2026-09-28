@@ -1,0 +1,23 @@
+{
+    "indexes": [
+        {
+            "collectionGroup": "slotReservations",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "doctor",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "date",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "status",
+                    "order": "ASCENDING"
+                }
+            ]
+        }
+    ],
+    "fieldOverrides": []
+}

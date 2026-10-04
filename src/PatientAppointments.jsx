@@ -1,96 +1,47 @@
-import React, { useEffect, useState } from 'react';
-import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, setDoc, where } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
-import { db, auth } from './firebase.js';
+import React, { useState } from 'react';
 
 const timeSlots = ['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '12:00 PM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'];
-const slotIdFor = (doctor, date, time) => [doctor, date, time].map(value => encodeURIComponent(value)).join('__');
+const storageKey = 'khammamcare-demo-appointments';
+const readAppointments = () => {
+  try {
+    const appointments = JSON.parse(localStorage.getItem(storageKey) || '[]');
+    return Array.isArray(appointments) ? appointments : [];
+  } catch {
+    return [];
+  }
+};
+const saveAppointments = appointments => localStorage.setItem(storageKey, JSON.stringify(appointments));
 
 export default function PatientAppointments() {
-  const [user, setUser] = useState(null);
-  const [appointments, setAppointments] = useState([]);
+  const [appointments, setAppointments] = useState(readAppointments);
   const [reschedule, setReschedule] = useState(null);
   const [rating, setRating] = useState({});
-  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
 
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
-
-  useEffect(() => {
-    if (!user) {
-      setAppointments([]);
-      setLoading(false);
-      return undefined;
-    }
-    const appointmentsQuery = query(collection(db, 'appointments'), where('userId', '==', user.uid));
-    return onSnapshot(appointmentsQuery, snapshot => {
-      setAppointments(snapshot.docs
-        .map(item => ({ id: item.id, ...item.data() }))
-        .sort((first, second) => `${second.date} ${second.time}`.localeCompare(`${first.date} ${first.time}`)));
-      setLoading(false);
-    }, error => {
-      console.error(error);
-      setMessage('Unable to load your appointments. Please try again.');
-      setLoading(false);
-    });
-  }, [user]);
-
   const cancelAppointment = async appointment => {
-    try {
-      await runTransaction(db, async transaction => {
-        const appointmentRef = doc(db, 'appointments', appointment.id);
-        const appointmentSnapshot = await transaction.get(appointmentRef);
-        if (!appointmentSnapshot.exists() || appointmentSnapshot.data().userId !== user.uid) throw new Error('Appointment not found.');
-        transaction.update(appointmentRef, { status: 'canceled', updatedAt: serverTimestamp(), updatedBy: 'patient' });
-        if (appointment.slotId) transaction.delete(doc(db, 'slotReservations', appointment.slotId));
-      });
-      setMessage('Appointment canceled and its time slot is available again.');
-    } catch (error) {
-      console.error(error);
-      setMessage('Could not cancel this appointment.');
-    }
+    const updated = appointments.map(item => item.id === appointment.id ? { ...item, status: 'canceled' } : item);
+    saveAppointments(updated);
+    setAppointments(updated);
+    setMessage('Demo appointment canceled.');
   };
 
   const requestReschedule = async event => {
     event.preventDefault();
     if (!reschedule?.date || !reschedule?.time) return;
-    try {
-      const appointmentRef = doc(db, 'appointments', reschedule.id);
-      const newSlotId = slotIdFor(reschedule.doctor, reschedule.date, reschedule.time);
-      await runTransaction(db, async transaction => {
-        const appointmentSnapshot = await transaction.get(appointmentRef);
-        const newSlotRef = doc(db, 'slotReservations', newSlotId);
-        const newSlotSnapshot = await transaction.get(newSlotRef);
-        if (!appointmentSnapshot.exists() || appointmentSnapshot.data().userId !== user.uid) throw new Error('Appointment not found.');
-        if (newSlotSnapshot.exists() && newSlotSnapshot.data().status === 'reserved') throw new Error('That time slot is already booked.');
-        const oldSlotId = appointmentSnapshot.data().slotId;
-        if (oldSlotId && oldSlotId !== newSlotId) transaction.delete(doc(db, 'slotReservations', oldSlotId));
-        transaction.set(newSlotRef, { doctor: reschedule.doctor, date: reschedule.date, time: reschedule.time, userId: user.uid, appointmentId: reschedule.id, status: 'reserved', updatedAt: serverTimestamp() });
-        transaction.update(appointmentRef, { date: reschedule.date, time: reschedule.time, slotId: newSlotId, status: 'confirmed', updatedAt: serverTimestamp(), updatedBy: 'patient' });
-      });
-      setReschedule(null);
-      setMessage('Appointment rescheduled successfully.');
-    } catch (error) {
-      console.error(error);
-      setMessage(error.message || 'Could not request a reschedule.');
-    }
+    const updated = appointments.map(item => item.id === reschedule.id ? { ...item, date: reschedule.date, time: reschedule.time } : item);
+    saveAppointments(updated);
+    setAppointments(updated);
+    setReschedule(null);
+    setMessage('Demo appointment rescheduled.');
   };
 
   const submitRating = async (appointment, value) => {
-    try {
-      const ratingId = `${user.uid}__${encodeURIComponent(appointment.doctor)}`;
-      await setDoc(doc(db, 'ratings', ratingId), { userId: user.uid, doctor: appointment.doctor, hospital: appointment.hospital, rating: value, appointmentId: appointment.id, updatedAt: serverTimestamp() });
-      setRating(current => ({ ...current, [appointment.id]: value }));
-      setMessage('Thank you for rating your doctor.');
-    } catch (error) {
-      console.error(error);
-      setMessage('Could not save the rating.');
-    }
+    const updated = appointments.map(item => item.id === appointment.id ? { ...item, rating: value } : item);
+    saveAppointments(updated);
+    setAppointments(updated);
+    setRating(current => ({ ...current, [appointment.id]: value }));
+    setMessage('Demo rating saved.');
   };
-
-  if (!user) {
-    return <main className="admin-page"><div className="admin-topbar"><div><div className="eyebrow">KHAMMAMCARE</div><h1>My Appointments</h1><p>Please sign in from the main website to view your appointment history.</p></div><a className="admin-back" href="/">Back to website</a></div></main>;
-  }
 
   return (
     <main className="admin-page">
@@ -99,8 +50,7 @@ export default function PatientAppointments() {
         <a className="admin-back" href="/">Back to website</a>
       </div>
       {message && <div className="admin-error">{message}</div>}
-      {loading && <div className="admin-empty">Loading your appointments...</div>}
-      {!loading && appointments.length === 0 && <div className="admin-empty"><h3>No appointments yet</h3><p>Book your first consultation from the main website.</p></div>}
+      {appointments.length === 0 && <div className="admin-empty"><h3>No appointments yet</h3><p>Book your first consultation from the main website.</p></div>}
       <div className="patient-appointments">
         {appointments.map(appointment => {
           const active = !['canceled', 'Rejected', 'Completed'].includes(appointment.status);

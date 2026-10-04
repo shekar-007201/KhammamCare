@@ -103,52 +103,6 @@ nav a:hover {
     gap: 10px
 }
 
-.auth-nav-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px
-}
-
-.auth-nav-btn svg {
-    width: 17px;
-    height: 17px
-}
-
-.auth-user-name {
-    max-width: 110px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px
-}
-
-.mobile-login {
-    display: none;
-    align-items: center;
-    justify-content: center;
-    gap: 9px;
-    width: 100%;
-    min-height: 44px;
-    border: 1px solid #087fdb;
-    border-radius: 8px;
-    background: #f1f8fd;
-    color: #087fdb;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer
-}
-
-.mobile-login svg {
-    width: 18px;
-    height: 18px
-}
-
-.mobile-login:disabled {
-    cursor: wait;
-    opacity: .65
-}
-
 .appointment-btn {
     background: #087fdb;
     color: #fff;
@@ -1204,23 +1158,6 @@ footer {
     .menu-btn {
         display: block;
         margin-left: auto
-    }
-    .nav-actions .auth-nav-btn {
-        display: inline-flex;
-        width: auto;
-        min-width: 40px;
-        height: 40px;
-        max-width: 132px;
-        padding: 0 9px
-    }
-    .auth-nav-btn .auth-action-label {
-        display: none
-    }
-    .auth-nav-btn .auth-user-name {
-        max-width: 58px
-    }
-    nav.open .mobile-login {
-        display: flex
     }
     .nav-actions {
         order: 3;

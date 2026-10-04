@@ -1,26 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Building2, CalendarCheck, CreditCard, Landmark, LogIn, Smartphone, Stethoscope, UserRound } from 'lucide-react';
-import { auth, db } from './firebase.js';
+import { Building2, CalendarCheck, CreditCard, Landmark, Smartphone, Stethoscope } from 'lucide-react';
 import { useDirectory } from './useDirectory.js';
 import { validateAppointment } from './validation.js';
 import profilePhoto from '../me.jpg';
-import {
-  createUserWithEmailAndPassword,
-  onAuthStateChanged,
-  RecaptchaVerifier,
-  sendEmailVerification,
-  sendPasswordResetEmail,
-  signInWithEmailAndPassword,
-  signInWithPhoneNumber,
-  signOut,
-  updateProfile,
-} from 'firebase/auth';
-import { collection, doc, onSnapshot, query, runTransaction, serverTimestamp, where } from 'firebase/firestore';
 
 const initials = name => name.replace('Dr. ', '').split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase();
 const maps = name => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' Khammam')}`;
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
 const APPOINTMENT_FEE = 399;
+const APPOINTMENTS_KEY = 'khammamcare-demo-appointments';
+const readAppointments = () => {
+  try {
+    const appointments = JSON.parse(localStorage.getItem(APPOINTMENTS_KEY) || '[]');
+    return Array.isArray(appointments) ? appointments : [];
+  } catch {
+    return [];
+  }
+};
 const translations = {
   en: { home: 'Home', hospitals: 'Hospitals', doctors: 'Doctors', appointment: 'Appointment', about: 'About', myAppointments: 'My Appointments', search: 'Search', book: 'Book with doctor', selectDoctor: 'Select doctor', timeSlot: 'Time slot', selectTime: 'Select time' },
   te: { home: 'హోమ్', hospitals: 'ఆసుపత్రులు', doctors: 'వైద్యులు', appointment: 'అపాయింట్‌మెంట్', about: 'మా గురించి', myAppointments: 'నా అపాయింట్‌మెంట్లు', search: 'వెతకండి', book: 'వైద్యుడిని ఎంచుకోండి', selectDoctor: 'వైద్యుడిని ఎంచుకోండి', timeSlot: 'సమయ స్లాట్', selectTime: 'సమయాన్ని ఎంచుకోండి' },
@@ -70,62 +66,20 @@ function Modal({ children, onClose, className = '' }) {
 export default function App() {
   const { doctors, hospitals, emergencyFacilities, loading: directoryLoading, error: directoryError } = useDirectory();
   const [query, setQuery] = useState(''), [docSpec, setDocSpec] = useState(''), [docHospital, setDocHospital] = useState(''), [docArea, setDocArea] = useState(''), [openNow, setOpenNow] = useState(false);
-  const [shown, setShown] = useState(24), [menu, setMenu] = useState(false), [selectedHospital, setSelectedHospital] = useState(''), [selectedDoctor, setSelectedDoctor] = useState('');
-  const [login, setLogin] = useState(false), [authMode, setAuthMode] = useState('login'), [authUsername, setAuthUsername] = useState(''), [authEmail, setAuthEmail] = useState(''), [authPassword, setAuthPassword] = useState(''), [authPhone, setAuthPhone] = useState(''), [authOtp, setAuthOtp] = useState(''), [authMethod, setAuthMethod] = useState('email'), [authError, setAuthError] = useState(''), [authLoading, setAuthLoading] = useState(false), [phoneConfirmation, setPhoneConfirmation] = useState(null), [otpSent, setOtpSent] = useState(false);
-  const [user, setUser] = useState(null), [authReady, setAuthReady] = useState(false), [pendingAction, setPendingAction] = useState(null);
+  const [shown, setShown] = useState(24), [menu, setMenu] = useState(false), [selectedDoctor, setSelectedDoctor] = useState('');
   const [payment, setPayment] = useState(null), [paymentMode, setPaymentMode] = useState('UPI'), [paymentInput, setPaymentInput] = useState(''), [success, setSuccess] = useState(null), [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: '', phone: '', age: '', hospital: '', doctor: '', date: '', time: '', reason: '' });
   const [reservedSlots, setReservedSlots] = useState([]);
-  const [language, setLanguage] = useState('en'), [doctorRatings, setDoctorRatings] = useState({});
-  const accountName = user?.displayName?.trim() || user?.email?.split('@')[0] || 'Account';
+  const [language, setLanguage] = useState('en');
+  const doctorRatings = {};
   const t = key => translations[language][key] || translations.en[key];
-  const emailNeedsVerification = user?.providerData.some(provider => provider.providerId === 'password') && !user.emailVerified;
-
-  useEffect(() => onAuthStateChanged(auth, currentUser => { setUser(currentUser); setAuthReady(true); }), []);
-
-  useEffect(() => onSnapshot(collection(db, 'ratings'), snapshot => {
-    const totals = {};
-    snapshot.docs.forEach(item => {
-      const data = item.data();
-      if (!data.doctor || !data.rating) return;
-      totals[data.doctor] ||= { total: 0, count: 0 };
-      totals[data.doctor].total += data.rating;
-      totals[data.doctor].count += 1;
-    });
-    setDoctorRatings(totals);
-  }, error => console.error('Rating load failed:', error)), []);
 
   useEffect(() => {
-    if (!user || !form.doctor || !form.date) {
-      setReservedSlots([]);
-      return undefined;
-    }
-    const slotsQuery = query(
-      collection(db, 'slotReservations'),
-      where('doctor', '==', form.doctor),
-      where('date', '==', form.date),
-      where('status', '==', 'reserved'),
-    );
-    return onSnapshot(slotsQuery, snapshot => {
-      setReservedSlots(snapshot.docs.map(slot => slot.data().time));
-    }, error => {
-      console.error(error);
-      setReservedSlots([]);
-    });
-  }, [user, form.doctor, form.date]);
-
-  useEffect(() => {
-    if (!authReady || login || authLoading || !pendingAction) return;
-    if (!user) {
-      setAuthError('');
-      setAuthMode('login');
-      setLogin(true);
-      return;
-    }
-    const action = pendingAction;
-    setPendingAction(null);
-    action();
-  }, [authReady, login, authLoading, pendingAction, user]);
+    const bookedSlots = readAppointments()
+      .filter(appointment => appointment.doctor === form.doctor && appointment.date === form.date && appointment.status !== 'canceled')
+      .map(appointment => appointment.time);
+    setReservedSlots(bookedSlots);
+  }, [form.doctor, form.date]);
 
   const specialities = useMemo(() => [...new Set(doctors.map(d => d[1]))].sort(), []);
   const hospitalNames = useMemo(() => [...new Set(doctors.map(d => d[2]))].sort(), [doctors]);
@@ -146,261 +100,35 @@ export default function App() {
   const visible = filtered.slice(0, shown);
   const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
-  const getRecaptchaVerifier = () => {
-    if (typeof window === 'undefined') return null;
-    if (window.recaptchaVerifier && typeof window.recaptchaVerifier.clear === 'function') {
-      return window.recaptchaVerifier;
-    }
-    const verifier = new RecaptchaVerifier(auth, 'phone-recaptcha', {
-      size: 'invisible',
-      callback: () => {},
-    });
-    window.recaptchaVerifier = verifier;
-    return verifier;
-  };
-
-  const resetPhoneAuth = () => {
-    setAuthPhone('');
-    setAuthOtp('');
-    setOtpSent(false);
-    setPhoneConfirmation(null);
-    if (typeof window !== 'undefined' && window.recaptchaVerifier) {
-      try {
-        window.recaptchaVerifier.clear();
-      } catch (error) {
-        console.warn('Recaptcha cleanup warning:', error);
-      }
-      delete window.recaptchaVerifier;
-    }
-  };
-
-  const openLogin = () => {
-    setAuthError('');
-    setAuthMethod('email');
-    resetPhoneAuth();
-    setLogin(true);
-  };
-  const closeLogin = () => {
-    setLogin(false);
-    setPendingAction(null);
-    setAuthMode('login');
-    setAuthMethod('email');
-    resetPhoneAuth();
-  };
-  const runAfterLogin = action => {
-    if (authReady && user) {
-      action();
-      return;
-    }
-    setPendingAction(() => action);
-    if (authReady) openLogin();
-  };
-
-  const chooseHospital = h => runAfterLogin(() => { setSelectedHospital(h); update('hospital', h); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); });
-  const chooseDoctor = (d, h) => runAfterLogin(() => { setSelectedDoctor(d); update('doctor', d); update('hospital', h); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); });
-
-  const handleAuth = async e => {
-    e.preventDefault();
-    setAuthError('');
-
-    if (authMethod === 'phone') {
-      if (!authPhone.trim()) {
-        setAuthError('Please enter your mobile number.');
-        return;
-      }
-      const normalizedPhone = authPhone.replace(/\D/g, '');
-      if (normalizedPhone.length < 10 || normalizedPhone.length > 15) {
-        setAuthError('Please enter a valid mobile number.');
-        return;
-      }
-      setAuthLoading(true);
-      try {
-        const phoneNumber = normalizedPhone.length === 10 ? `+91${normalizedPhone}` : `+${normalizedPhone}`;
-        const appVerifier = getRecaptchaVerifier();
-        if (!appVerifier) {
-          setAuthError('Phone sign-in is not available in this browser environment.');
-          return;
-        }
-        const confirmation = await signInWithPhoneNumber(auth, phoneNumber, appVerifier);
-        setPhoneConfirmation(confirmation);
-        setOtpSent(true);
-        setAuthError('OTP sent successfully. Please enter the 6-digit code.');
-      } catch (error) {
-        console.error(error);
-        setAuthError(error.message || 'Unable to send OTP. Please try again.');
-      } finally {
-        setAuthLoading(false);
-      }
-      return;
-    }
-
-    if (authMode === 'register' && !authUsername.trim()) {
-      setAuthError('Please enter a username.');
-      return;
-    }
-    setAuthLoading(true);
-    try {
-      if (authMode === 'register') {
-        const credential = await createUserWithEmailAndPassword(auth, authEmail.trim(), authPassword);
-        await updateProfile(credential.user, { displayName: authUsername.trim() });
-        await sendEmailVerification(credential.user);
-        await signOut(auth);
-        setAuthError('Account created. Check your email and verify your address before logging in.');
-        setAuthMode('login');
-        setAuthUsername('');
-        setAuthPassword('');
-        return;
-      } else {
-        const credential = await signInWithEmailAndPassword(auth, authEmail.trim(), authPassword);
-        if (!credential.user.emailVerified) {
-          await signOut(auth);
-          setAuthError('Please verify your email before booking. Check your inbox for the verification link.');
-          return;
-        }
-      }
-      setLogin(false);
-      setAuthUsername('');
-      setAuthEmail('');
-      setAuthPassword('');
-      setAuthMode('login');
-      setAuthMethod('email');
-      resetPhoneAuth();
-    } catch (error) {
-      const messages = {
-        'auth/email-already-in-use': 'This email is already registered. Please login.',
-        'auth/invalid-credential': 'Invalid email or password.',
-        'auth/weak-password': 'Password must be at least 6 characters.',
-        'auth/invalid-email': 'Please enter a valid email address.',
-        'auth/user-not-found': 'No account exists for this email address.',
-        'auth/too-many-requests': 'Too many attempts. Wait a moment and try again.',
-      };
-      setAuthError(messages[error.code] || error.message);
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const resetPassword = async () => {
-    if (!authEmail.trim()) {
-      setAuthError('Enter your email address first, then choose Forgot password.');
-      return;
-    }
-    setAuthLoading(true);
-    try {
-      await sendPasswordResetEmail(auth, authEmail.trim());
-      setAuthError('Password reset email sent. Check your inbox.');
-    } catch (error) {
-      console.error(error);
-      setAuthError(error.code === 'auth/user-not-found' ? 'No account exists for this email address.' : 'Unable to send the reset email. Please try again.');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const verifyPhoneOtp = async e => {
-    e.preventDefault();
-    if (!phoneConfirmation) {
-      setAuthError('Please request an OTP first.');
-      return;
-    }
-    if (!authOtp.trim()) {
-      setAuthError('Please enter the OTP sent to your mobile number.');
-      return;
-    }
-    setAuthLoading(true);
-    try {
-      await phoneConfirmation.confirm(authOtp.trim());
-      setLogin(false);
-      setAuthMode('login');
-      setAuthMethod('email');
-      setAuthUsername('');
-      setAuthEmail('');
-      setAuthPassword('');
-      setAuthPhone('');
-      setAuthOtp('');
-      setOtpSent(false);
-      setPhoneConfirmation(null);
-    } catch (error) {
-      console.error(error);
-      setAuthError('Invalid OTP. Please check the code and try again.');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
+  const chooseHospital = hospital => { update('hospital', hospital); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); };
+  const chooseDoctor = (doctor, hospital) => { setSelectedDoctor(doctor); update('doctor', doctor); update('hospital', hospital); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); };
 
   const submit = e => {
     e.preventDefault();
     const validationError = validateAppointment(form);
     if (validationError) {
-      setAuthError(validationError);
-      return;
-    }
-    if (emailNeedsVerification) {
-      setAuthError('Verify your email address before booking an appointment.');
-      return;
-    }
-    setAuthError('');
-    if (!user) {
-      runAfterLogin(() => setPayment(true));
+      window.alert(validationError);
       return;
     }
     setPayment(true);
   };
 
-  const finish = async () => {
-    if (!user) {
-      setPayment(false);
-      openLogin();
-      return;
-    }
+  const finish = () => {
     setSaving(true);
     const token = 'KHM-' + Math.floor(1000 + Math.random() * 9000);
-    const slotId = [form.doctor, form.date, form.time].map(value => encodeURIComponent(value)).join('__');
     try {
-      const appointmentRef = doc(collection(db, 'appointments'));
-      const slotRef = doc(db, 'slotReservations', slotId);
-      await runTransaction(db, async transaction => {
-        const slotSnapshot = await transaction.get(slotRef);
-        if (slotSnapshot.exists() && slotSnapshot.data().status === 'reserved') {
-          const error = new Error('This time slot was just booked by another patient. Please choose another slot.');
-          error.code = 'slot-taken';
-          throw error;
-        }
-        transaction.set(slotRef, {
-          doctor: form.doctor,
-          date: form.date,
-          time: form.time,
-          userId: user.uid,
-          appointmentId: appointmentRef.id,
-          status: 'reserved',
-          createdAt: serverTimestamp(),
-        });
-        transaction.set(appointmentRef, {
-          ...form,
-          userId: user.uid,
-          userEmail: user.email,
-          amount: APPOINTMENT_FEE,
-          paymentMode,
-          paymentStatus: 'demo-paid',
-          token,
-          status: 'confirmed',
-          slotId,
-          notification: { type: 'booking-confirmation', status: 'pending', email: user.email, phone: form.phone },
-          paymentProvider: 'demo',
-          createdAt: serverTimestamp(),
-        });
-      });
+      const bookedAt = new Date().toISOString();
+      const appointment = { id: token, ...form, amount: APPOINTMENT_FEE, paymentMode, paymentStatus: 'demo-paid', token, status: 'confirmed', createdAt: bookedAt };
+      localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify([...readAppointments(), appointment]));
+      setReservedSlots(current => [...current, form.time]);
       setPayment(false);
-      setSuccess({ ...form, amount: APPOINTMENT_FEE, payment: `${paymentMode} (demo)`, token, bookedAt: new Date().toISOString() });
-      setForm({ name: '', phone: '', age: '', hospital: '', doctor: '', date: '', time: '', reason: '' }); setPaymentInput(''); setPaymentMode('UPI');
+      setSuccess({ ...form, amount: APPOINTMENT_FEE, payment: `${paymentMode} (demo)`, token, bookedAt });
+      setForm({ name: '', phone: '', age: '', hospital: '', doctor: '', date: '', time: '', reason: '' });
+      setPaymentInput('');
+      setPaymentMode('UPI');
     } catch (error) {
       console.error(error);
-      if (error.code === 'slot-taken') {
-        setPayment(false);
-        setAuthError(error.message);
-      } else {
-        alert('Appointment save failed. Check Firebase Firestore setup and rules.');
-      }
+      window.alert('Could not save the appointment in this browser. Check available storage and try again.');
     } finally {
       setSaving(false);
     }
@@ -409,7 +137,7 @@ export default function App() {
   if (directoryLoading) return <main className="admin-page"><div className="admin-empty"><span className="loading-spinner" />Loading the Khammam directory...</div></main>;
 
   return <>
-    <header className="header"><div className="container nav"><a className="brand" href="#home"><span className="brand-icon">✚</span><span>Khammam<span>Care</span><small>Doctors & Hospitals</small></span></a><button className="menu-btn" onClick={() => setMenu(!menu)}>☰</button><nav className={menu ? 'open' : ''}><a href="#home">{t('home')}</a><a href="#hospitals">{t('hospitals')}</a><a href="#doctors">{t('doctors')}</a><a href="#appointment" onClick={event => { event.preventDefault(); setMenu(false); runAfterLogin(() => document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' })); }}>{t('appointment')}</a><a href="#about">{t('about')}</a><a href="/appointments">{t('myAppointments')}</a><button type="button" className="mobile-login" disabled={!authReady} onClick={() => { setMenu(false); user ? signOut(auth) : openLogin(); }}><UserRound aria-hidden="true" /><span>{authReady ? user ? `Logout · ${accountName}` : 'Login' : 'Checking...'}</span></button></nav><div className="nav-actions"><button type="button" className="outline-btn" onClick={() => setLanguage(current => current === 'en' ? 'te' : 'en')} aria-label="Switch language">{language === 'en' ? 'తెలుగు' : 'English'}</button><button type="button" className="outline-btn auth-nav-btn" aria-label={user ? `Logout ${accountName}` : authReady ? 'Login' : 'Checking authentication'} title={user ? `Logout ${accountName}` : authReady ? 'Login' : 'Checking authentication'} disabled={!authReady} onClick={user ? () => signOut(auth) : openLogin}><UserRound aria-hidden="true" />{user && <span className="auth-user-name">{accountName}</span>}<span className="auth-action-label">{authReady ? user ? 'Logout' : 'Login' : 'Checking...'}</span></button></div></div></header>
+    <header className="header"><div className="container nav"><a className="brand" href="#home"><span className="brand-icon">✚</span><span>Khammam<span>Care</span><small>Doctors & Hospitals</small></span></a><button className="menu-btn" onClick={() => setMenu(!menu)}>☰</button><nav className={menu ? 'open' : ''}><a href="#home">{t('home')}</a><a href="#hospitals">{t('hospitals')}</a><a href="#doctors">{t('doctors')}</a><a href="#appointment" onClick={() => setMenu(false)}>{t('appointment')}</a><a href="#about">{t('about')}</a><a href="/appointments">{t('myAppointments')}</a></nav><div className="nav-actions"><button type="button" className="outline-btn" onClick={() => setLanguage(current => current === 'en' ? 'te' : 'en')} aria-label="Switch language">{language === 'en' ? 'తెలుగు' : 'English'}</button></div></div></header>
     <main>
       {directoryError && <div className="offline-banner" role="status">{directoryError}</div>}
       <section className="section emergency-section" id="emergency"><div className="container"><div className="section-head"><div><div className="eyebrow">EMERGENCY HELP</div><h2>Khammam emergency contacts</h2><p>Call first in an emergency. These public contacts are provided for quick access.</p></div></div><div className="emergency-grid">{emergencyFacilities.map(facility => <article className="emergency-card" key={`${facility.type}-${facility.name}`}><span className="tag">{facility.type}</span><h3>{facility.name}</h3><p>{facility.address}</p><a className="primary-btn" href={facility.action}>{facility.phone}</a></article>)}</div></div></section>
@@ -420,7 +148,7 @@ export default function App() {
             <h1>Find trusted <span>doctors</span> and hospitals in Khammam.</h1>
             <p>Search publicly listed directory information, view hospital locations and send an appointment request from one professional React website.</p>
             <div className="hero-actions">
-              <a className="primary-btn" href="#appointment" onClick={event => { event.preventDefault(); runAfterLogin(() => document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' })); }}>Appointment</a>
+              <a className="primary-btn" href="#appointment">Appointment</a>
               <a className="secondary-btn" href="#doctors">Find a Doctor →</a>
               <a className="secondary-btn" href="#hospitals">View Hospitals</a>
             </div>
@@ -456,22 +184,12 @@ export default function App() {
       <section className="search-wrap"><div className="container search-box"><div><label>Doctor / Hospital</label><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="e.g. cardiologist, Rakesh, Ankura" /></div><button className="primary-btn" onClick={() => { setShown(24); document.querySelector('#doctors')?.scrollIntoView({ behavior: 'smooth' }); }}>{t('search')}</button></div></section>
       <section className="section" id="hospitals"><div className="container"><div className="section-head"><div><div className="eyebrow">LOCAL DIRECTORY</div><h2>Hospitals in Khammam</h2><p>Hospital names are carried over from the researched public directory sources used for this project.</p></div></div><div className="hospital-grid">{hospitals.filter(h => (!docArea || h[4] === docArea) && (!openNow || h[5])).map(h => { const count = doctors.filter(d => d[2] === h[0]).length; return <article className="hospital-card" key={h[0]}><img className="hospital-photo" src={hospitalPhotos[hospitals.indexOf(h) % hospitalPhotos.length]} alt={`${h[0]} hospital`} loading="lazy" /><div className="hospital-icon fallback-icon">🏥</div><span className="tag">{h[1]}</span><h3>{h[0]}</h3><p>📍 {h[2]}</p><p>{count} doctors currently listed in this directory.</p><div className="hospital-actions"><a className="map-btn" href={h[3] || maps(h[0])} target="_blank" rel="noreferrer">📍 Location</a><button className="book-btn" onClick={() => chooseHospital(h[0])}>Book</button></div></article>; })}</div></div></section>
       <section className="section doctors-section" id="doctors"><div className="container"><div className="section-head center"><div><div className="eyebrow">DOCTOR DIRECTORY</div><h2>Doctors in Khammam</h2><p>Showing {visible.length} of {filtered.length} researched doctor records</p></div></div><div className="doctor-toolbar"><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="Search doctor name..." /><select value={docSpec} onChange={e => { setDocSpec(e.target.value); setShown(24); }}><option value="">All specialities</option>{specialities.map(s => <option key={s}>{s}</option>)}</select><select value={docHospital} onChange={e => { setDocHospital(e.target.value); setShown(24); }}><option value="">All hospitals</option>{hospitalNames.map(h => <option key={h}>{h}</option>)}</select><select value={docArea} onChange={e => { setDocArea(e.target.value); setShown(24); }}><option value="">All areas</option>{areaNames.map(area => <option key={area}>{area}</option>)}</select><label className="filter-check"><input type="checkbox" checked={openNow} onChange={e => setOpenNow(e.target.checked)} /> Open now</label></div><div className="doctor-grid">{visible.map(d => { const doctorRating = doctorRatings[d[0]]; return <article className="doctor-card" key={d.join('|')}><div className="avatar-wrap"><img className="doctor-photo" src={doctorPhotos[doctors.indexOf(d) % doctorPhotos.length]} alt={`${d[0]} profile`} loading="lazy" /><div className="avatar fallback-avatar">{initials(d[0])}</div></div><h3>{d[0]}</h3><div className="speciality">{d[1]}</div><div className="hospital">🏥 {d[2]}</div>{doctorRating ? <div className="doctor-rating">★ {(doctorRating.total / doctorRating.count).toFixed(1)} ({doctorRating.count})</div> : <div className="doctor-rating">No ratings yet</div>}<div className="verified">✓ Publicly listed</div><button onClick={() => chooseDoctor(d[0], d[2])}>{t('book')}</button></article>; })}</div>{shown < filtered.length && <button className="load-more" onClick={() => setShown(x => x + 24)}>Load more doctors</button>}</div></section>
-      <section className="section appointment-section" id="appointment"><div className="container appointment-grid"><div className="appointment-info"><div className="eyebrow">APPOINTMENT REQUEST</div><h2>Book a consultation with your selected doctor.</h2><p>This version uses Firebase Authentication and Firestore. After the demo payment step, the appointment is saved to the <b>appointments</b> collection.</p><div className="info-list"><div>✓ Login/Register with Firebase</div><div>✓ Select hospital and doctor</div><div>✓ Choose date and time</div><div>✓ Demo payment step</div><div>✓ Appointment saved in Firestore</div></div></div><form className="form-card" onSubmit={submit}><div className="form-row"><div><label>Patient name</label><input value={form.name} onChange={e => update('name', e.target.value)} required /></div><div><label>Phone</label><input value={form.phone} onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} pattern="[0-9]{10}" required /></div></div><div className="form-row"><div><label>Patient age</label><input type="number" min="1" max="120" value={form.age} onChange={e => update('age', e.target.value)} placeholder="e.g. 32" required /></div><div><label>Hospital</label><select value={form.hospital} onChange={e => { const hospital = e.target.value; update('hospital', hospital); if (form.doctor && !doctors.some(d => d[2] === hospital && d[0] === form.doctor)) update('doctor', ''); }} required><option value="">Select hospital</option>{hospitals.map(h => <option key={h[0]}>{h[0]}</option>)}</select></div></div><div className="form-row"><div><label>{t('selectDoctor')}</label><select value={form.doctor} onChange={e => update('doctor', e.target.value)} required><option value="">{form.hospital ? t('selectDoctor') : t('selectDoctor')}</option>{availableDoctors.map(d => <option key={d[0]} value={d[0]}>{d[0]} · {d[1]}</option>)}</select></div><div><label>Date</label><input type="date" min={new Date().toISOString().split('T')[0]} value={form.date} onChange={e => update('date', e.target.value)} required /></div></div><div><label>{t('timeSlot')}</label><select value={form.time} onChange={e => update('time', e.target.value)} required><option value="">{t('selectTime')}</option>{timeSlots.map(slot => <option key={slot} value={slot} disabled={reservedSlots.includes(slot)}>{slot}{reservedSlots.includes(slot) ? ' · Booked' : ''}</option>)}</select>{reservedSlots.length > 0 && <small>{reservedSlots.length} slot(s) are already booked for this doctor on the selected date.</small>}</div><div><label>Reason / symptoms</label><textarea rows="3" value={form.reason} onChange={e => update('reason', e.target.value)} placeholder="Optional" /></div>{authError && <p className="login-error" role="alert">{authError}</p>}<button className="primary-btn full" type="submit">{user ? 'Continue to payment →' : 'Login to continue →'}</button></form></div></section>
-      <section className="section about" id="direct-book"><div className="container"><div className="about-card"><div><div className="eyebrow">NO CONTACTS? NO PROBLEM</div><h2>Don’t know anyone directly?</h2><p>You can request an appointment through KhammamCare without a personal referral. Choose a hospital, select a doctor and time, then submit your request online.</p></div><div className="source-note"><h3>Book in 3 steps</h3><div className="booking-steps"><div className="booking-step"><Building2 aria-hidden="true" /><span>Choose a hospital</span></div><div className="booking-step"><Stethoscope aria-hidden="true" /><span>Select a doctor and visit time</span></div><div className="booking-step"><CalendarCheck aria-hidden="true" /><span>Review and submit your request</span></div></div><a href="#appointment" className="primary-btn" onClick={event => { event.preventDefault(); runAfterLogin(() => document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' })); }}>Book appointment</a></div></div></div></section>
-      <section className="section" id="about"><div className="container"><div className="about-card"><div><div className="eyebrow">ABOUT THIS WEBSITE</div><h2>A healthcare website for Khammam.</h2><p>KhammamCare is a website where people can explore listed doctors and hospitals in Khammam, search by speciality, open hospital locations in Google Maps, and send appointment requests. It is built with React and Vite, uses Firebase Authentication for accounts, and stores appointments in Cloud Firestore. Checkout is a demo only; no real payment is processed.</p></div><div className="tech-list"><span>React</span><span>Vite</span><span>JavaScript</span><span>Firebase Authentication</span><span>Cloud Firestore</span><span>Responsive CSS</span><span>Google Maps links</span></div></div></div></section>
+      <section className="section appointment-section" id="appointment"><div className="container appointment-grid"><div className="appointment-info"><div className="eyebrow">APPOINTMENT REQUEST</div><h2>Book a consultation with your selected doctor.</h2><p>Choose your hospital, doctor and visit time. Demo bookings are saved only in this browser.</p><div className="info-list"><div>✓ Select hospital and doctor</div><div>✓ Choose date and time</div><div>✓ Review demo payment options</div><div>✓ Appointment saved in this browser</div></div></div><form className="form-card" onSubmit={submit}><div className="form-row"><div><label>Patient name</label><input value={form.name} onChange={e => update('name', e.target.value)} required /></div><div><label>Phone</label><input value={form.phone} onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} pattern="[0-9]{10}" required /></div></div><div className="form-row"><div><label>Patient age</label><input type="number" min="1" max="120" value={form.age} onChange={e => update('age', e.target.value)} placeholder="e.g. 32" required /></div><div><label>Hospital</label><select value={form.hospital} onChange={e => { const hospital = e.target.value; update('hospital', hospital); if (form.doctor && !doctors.some(d => d[2] === hospital && d[0] === form.doctor)) update('doctor', ''); }} required><option value="">Select hospital</option>{hospitals.map(h => <option key={h[0]}>{h[0]}</option>)}</select></div></div><div className="form-row"><div><label>{t('selectDoctor')}</label><select value={form.doctor} onChange={e => update('doctor', e.target.value)} required><option value="">{t('selectDoctor')}</option>{availableDoctors.map(d => <option key={d[0]} value={d[0]}>{d[0]} · {d[1]}</option>)}</select></div><div><label>Date</label><input type="date" min={new Date().toISOString().split('T')[0]} value={form.date} onChange={e => update('date', e.target.value)} required /></div></div><div><label>{t('timeSlot')}</label><select value={form.time} onChange={e => update('time', e.target.value)} required><option value="">{t('selectTime')}</option>{timeSlots.map(slot => <option key={slot} value={slot} disabled={reservedSlots.includes(slot)}>{slot}{reservedSlots.includes(slot) ? ' · Booked' : ''}</option>)}</select>{reservedSlots.length > 0 && <small>{reservedSlots.length} slot(s) are already booked for this doctor on the selected date.</small>}</div><div><label>Reason / symptoms</label><textarea rows="3" value={form.reason} onChange={e => update('reason', e.target.value)} placeholder="Optional" /></div><button className="primary-btn full" type="submit">Continue to demo payment →</button></form></div></section>
+      <section className="section about" id="direct-book"><div className="container"><div className="about-card"><div><div className="eyebrow">NO CONTACTS? NO PROBLEM</div><h2>Don’t know anyone directly?</h2><p>You can request an appointment through KhammamCare without a personal referral. Choose a hospital, select a doctor and time, then submit your request online.</p></div><div className="source-note"><h3>Book in 3 steps</h3><div className="booking-steps"><div className="booking-step"><Building2 aria-hidden="true" /><span>Choose a hospital</span></div><div className="booking-step"><Stethoscope aria-hidden="true" /><span>Select a doctor and visit time</span></div><div className="booking-step"><CalendarCheck aria-hidden="true" /><span>Review and submit your request</span></div></div><a href="#appointment" className="primary-btn">Book appointment</a></div></div></div></section>
+      <section className="section" id="about"><div className="container"><div className="about-card"><div><div className="eyebrow">ABOUT THIS WEBSITE</div><h2>A healthcare website for Khammam.</h2><p>KhammamCare lets people explore listed doctors and hospitals, search by speciality, view locations and save demo appointment requests in this browser. Checkout is a demo only; no real payment is processed.</p></div><div className="tech-list"><span>React</span><span>Vite</span><span>JavaScript</span><span>Local demo storage</span><span>Responsive CSS</span><span>Google Maps links</span></div></div></div></section>
     </main>
-    <footer><div className="container">© 2026 KhammamCare • React + Firebase student project</div></footer>
+    <footer><div className="container">© 2026 KhammamCare • React demo project</div></footer>
 
-    {login && <Modal className="login-modal" onClose={closeLogin}><button type="button" className="modal-close" aria-label="Close login" onClick={closeLogin}>×</button><div id="phone-recaptcha" /> <div className="login-mark"><LogIn aria-hidden="true" /></div><div className="eyebrow">KHAMMAMCARE ACCOUNT</div><h2>{authMethod === 'phone' ? 'Login with OTP' : authMode === 'login' ? 'Welcome back' : 'Create account'}</h2><p className="login-intro">{authMethod === 'phone' ? 'Enter your mobile number to receive a one-time password.' : authMode === 'login' ? 'Sign in to continue with your appointment.' : 'Create an account to continue with your appointment.'}</p>{authMethod === 'phone' ? <form className="login-form" onSubmit={otpSent ? verifyPhoneOtp : handleAuth}><label htmlFor="auth-phone">Mobile number</label><input id="auth-phone" placeholder="e.g. 9876543210" type="tel" value={authPhone} onChange={e => setAuthPhone(e.target.value)} required /><div className="auth-method-switch"><button type="button" className="card-link" onClick={() => { setAuthMethod('email'); setAuthError(''); resetPhoneAuth(); }}>Use email login</button></div>{authError && <p className="login-error" role="alert">{authError}</p>}{otpSent ? <><label htmlFor="auth-otp">OTP</label><input id="auth-otp" placeholder="Enter 6-digit OTP" inputMode="numeric" value={authOtp} onChange={e => setAuthOtp(e.target.value.replace(/\D/g, '').slice(0, 6))} required /><button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Verifying...' : 'Verify OTP'}</button></> : <button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Sending OTP...' : 'Send OTP'}</button>}</form> : <form className="login-form" onSubmit={handleAuth}>{authMode === 'register' && <><label htmlFor="auth-username">Username</label><input id="auth-username" placeholder="Your name" type="text" autoComplete="nickname" value={authUsername} onChange={e => setAuthUsername(e.target.value)} minLength="2" maxLength="40" required /></>}<label htmlFor="auth-email">Email address</label><input id="auth-email" placeholder="you@example.com" type="email" value={authEmail} onChange={e => setAuthEmail(e.target.value)} required /><label htmlFor="auth-password">Password</label><input id="auth-password" placeholder="At least 6 characters" type="password" value={authPassword} onChange={e => setAuthPassword(e.target.value)} minLength="6" required />{authError && <p className="login-error" role="alert">{authError}</p>}<button className="primary-btn full" disabled={authLoading}>{authLoading ? 'Please wait...' : authMode === 'login' ? 'Login' : 'Create account'}</button>{authMode === 'login' && <button type="button" className="card-link forgot-link" onClick={resetPassword} disabled={authLoading}>Forgot password?</button>}<div className="auth-method-switch"><button type="button" className="card-link" onClick={() => { setAuthMethod('phone'); setAuthError(''); resetPhoneAuth(); }}>Use phone OTP</button></div></form>}<p className="login-switch">{authMethod === 'phone' ? 'Need email login?' : authMode === 'login' ? 'New patient?' : 'Already have an account?'} <button type="button" className="card-link" onClick={() => {
-          if (authMethod === 'phone') {
-            setAuthMethod('email');
-            setAuthError('');
-            resetPhoneAuth();
-            return;
-          }
-          setAuthMode(authMode === 'login' ? 'register' : 'login');
-          setAuthError('');
-        }}>{authMethod === 'phone' ? 'Switch to email' : authMode === 'login' ? 'Create account' : 'Login'}</button></p></Modal>}
     {payment && <Modal onClose={() => setPayment(false)}><button className="modal-close" onClick={() => setPayment(false)}>×</button><div className="eyebrow">SECURE CHECKOUT • DEMO</div><h2>Choose payment mode</h2><div className="pay-options">{[{ name: 'UPI', Icon: Smartphone }, { name: 'Card', Icon: CreditCard }, { name: 'Net Banking', Icon: Landmark }].map(({ name, Icon }) => <button key={name} type="button" className={paymentMode === name ? 'active' : ''} aria-pressed={paymentMode === name} onClick={() => { setPaymentMode(name); setPaymentInput(''); }}><Icon aria-hidden="true" /><span>{name}</span></button>)}</div><div className="demo-pay"><p>Appointment: <b>{form.doctor}</b></p><p>Hospital: {form.hospital}</p><p>Patient: {form.name}</p><p>Amount: <b>₹{APPOINTMENT_FEE} (demo)</b></p><small>No real payment will be charged.</small></div>{paymentMode === 'UPI' && <input className="payment-input" placeholder="Enter UPI ID (demo)" value={paymentInput} onChange={e => setPaymentInput(e.target.value)} />}{paymentMode === 'Card' && <div className="payment-fields"><input placeholder="Card number (demo)" inputMode="numeric" value={paymentInput} onChange={e => setPaymentInput(e.target.value.replace(/\D/g,'').slice(0,16))} /><div className="form-row"><input placeholder="MM/YY" /><input placeholder="CVV" type="password" inputMode="numeric" maxLength="3" /></div></div>}{paymentMode === 'Net Banking' && <select className="payment-input" value={paymentInput} onChange={e => setPaymentInput(e.target.value)}><option value="">Select bank (demo)</option><option>State Bank of India</option><option>HDFC Bank</option><option>ICICI Bank</option><option>Axis Bank</option></select>}<button className="primary-btn full" onClick={finish} disabled={saving}>{saving ? 'Saving appointment...' : `Pay ₹${APPOINTMENT_FEE} with ${paymentMode} (Demo)`}</button></Modal>}
     {success && <Modal onClose={() => setSuccess(null)}><button className="modal-close" onClick={() => setSuccess(null)}>×</button><div className="receipt success"><div className="receipt-header"><div><div className="eyebrow">APPOINTMENT CONFIRMED</div><h2>Payment receipt</h2></div><div className="success-icon">✓</div></div><div className="receipt-token"><small>APPOINTMENT TOKEN</small><strong>{success.token}</strong></div><div className="receipt-details"><div><span>Patient</span><b>{success.name}</b><small>Age {success.age} · {success.phone}</small></div><div><span>Doctor</span><b>{success.doctor}</b></div><div><span>Hospital</span><b>{success.hospital}</b></div><div><span>Appointment</span><b>{success.date} at {success.time}</b></div></div><div className="receipt-total"><span>Total paid · {success.payment}</span><b>₹{success.amount}.00</b></div><p className="receipt-note">Keep this token for your hospital visit. This is a demo payment receipt.</p><div className="receipt-actions"><button className="secondary-btn" onClick={() => setSuccess(null)}>Close</button><button className="primary-btn" onClick={() => downloadReceipt(success)}>Download receipt</button></div></div></Modal>}
   </>;

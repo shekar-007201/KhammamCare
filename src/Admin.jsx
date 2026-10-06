@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { getAppointmentStats } from './adminStats.js';
 
 const storageKey = 'khammamcare-demo-appointments';
 const readAppointments = () => {
@@ -38,9 +39,7 @@ export default function Admin() {
     setAppointments(updated);
   };
 
-  const pending = appointments.filter(a => (a.status || 'confirmed') === 'Pending').length;
-  const confirmed = appointments.filter(a => ['confirmed', 'Approved'].includes(a.status)).length;
-  const completed = appointments.filter(a => a.status === 'Completed').length;
+  const stats = getAppointmentStats(appointments);
 
   return (
     <div className="admin-page">
@@ -54,10 +53,12 @@ export default function Admin() {
       </div>
 
       <div className="admin-stats">
-        <div><span>Total</span><strong>{appointments.length}</strong></div>
-        <div><span>Pending</span><strong>{pending}</strong></div>
-        <div><span>Confirmed</span><strong>{confirmed}</strong></div>
-        <div><span>Completed</span><strong>{completed}</strong></div>
+        <div><span>Total</span><strong>{stats.total}</strong></div>
+        <div><span>Logged in</span><strong>{stats.loggedIn}</strong></div>
+        <div><span>Seen</span><strong>{stats.seen}</strong></div>
+        <div><span>Pending</span><strong>{stats.pending}</strong></div>
+        <div><span>Confirmed</span><strong>{stats.confirmed}</strong></div>
+        <div><span>Completed</span><strong>{stats.completed}</strong></div>
       </div>
 
       <div className="admin-panel">
@@ -98,6 +99,7 @@ export default function Admin() {
                         <option value="Pending">Pending</option>
                         <option value="confirmed">Confirmed</option>
                         <option value="Approved">Approved</option>
+                        <option value="Seen">Seen</option>
                         <option value="Rejected">Rejected</option>
                         <option value="Completed">Completed</option>
                       </select>

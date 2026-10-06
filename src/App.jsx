@@ -1,32 +1,124 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Building2, CalendarCheck, CreditCard, Landmark, Smartphone, Stethoscope } from 'lucide-react';
+import {
+  Building2,
+  CalendarCheck,
+  CreditCard,
+  Landmark,
+  LogIn,
+  Smartphone,
+  Stethoscope,
+  UserRound,
+} from 'lucide-react';
+import { auth, db } from './firebase.js';
 import { useDirectory } from './useDirectory.js';
-import { validateAppointment } from './validation.js';
+import { getVerificationStatus } from './authState.js';
+import { getLocalDateValue, validateAppointment } from './validation.js';
 import profilePhoto from '../me.jpg';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  RecaptchaVerifier,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPhoneNumber,
+  signOut,
+  updateProfile,
+} from 'firebase/auth';
+import {
+  collection,
+  doc,
+  onSnapshot,
+  query as firestoreQuery,
+  runTransaction,
+  serverTimestamp,
+  where,
+} from 'firebase/firestore';
 
-const initials = name => name.replace('Dr. ', '').split(/\s+/).slice(0, 2).map(x => x[0]).join('').toUpperCase();
-const maps = name => `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(name + ' Khammam')}`;
-const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character]));
+const initials = (name) =>
+  name
+    .replace('Dr. ', '')
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((x) => x[0])
+    .join('')
+    .toUpperCase();
+
+const maps = (name) =>
+  `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    name + ' Khammam',
+  )}`;
+
+const escapeHtml = (value) =>
+  String(value ?? '').replace(/[&<>'"]/g, (character) =>
+    ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      "'": '&#39;',
+      '"': '&quot;',
+    })[character],
+  );
+
 const APPOINTMENT_FEE = 399;
-const APPOINTMENTS_KEY = 'khammamcare-demo-appointments';
-const readAppointments = () => {
-  try {
-    const appointments = JSON.parse(localStorage.getItem(APPOINTMENTS_KEY) || '[]');
-    return Array.isArray(appointments) ? appointments : [];
-  } catch {
-    return [];
-  }
-};
+
 const translations = {
-  en: { home: 'Home', hospitals: 'Hospitals', doctors: 'Doctors', appointment: 'Appointment', about: 'About', myAppointments: 'My Appointments', search: 'Search', book: 'Book with doctor', selectDoctor: 'Select doctor', timeSlot: 'Time slot', selectTime: 'Select time' },
-  te: { home: 'హోమ్', hospitals: 'ఆసుపత్రులు', doctors: 'వైద్యులు', appointment: 'అపాయింట్‌మెంట్', about: 'మా గురించి', myAppointments: 'నా అపాయింట్‌మెంట్లు', search: 'వెతకండి', book: 'వైద్యుడిని ఎంచుకోండి', selectDoctor: 'వైద్యుడిని ఎంచుకోండి', timeSlot: 'సమయ స్లాట్', selectTime: 'సమయాన్ని ఎంచుకోండి' },
+  en: {
+    home: 'Home',
+    hospitals: 'Hospitals',
+    doctors: 'Doctors',
+    appointment: 'Appointment',
+    about: 'About',
+    myAppointments: 'My Appointments',
+    search: 'Search',
+    book: 'Book with doctor',
+    selectDoctor: 'Select doctor',
+    timeSlot: 'Time slot',
+    selectTime: 'Select time',
+  },
+  te: {
+    home: 'హోమ్',
+    hospitals: 'హాస్పిటల్స్',
+    doctors: 'డాక్టర్లు',
+    appointment: 'అపాయింట్‌మెంట్',
+    about: 'మా గురించి',
+    myAppointments: 'నా అపాయింట్‌మెంట్స్',
+    search: 'వెతుకు',
+    book: 'డాక్టర్‌తో బుక్ చేయండి',
+    selectDoctor: 'డాక్టర్‌ను ఎంచుకోండి',
+    timeSlot: 'సమయాన్ని ఎంచుకోండి',
+    selectTime: 'సమయం ఎంచుకోండి',
+  },
 };
 
-const downloadReceipt = receipt => {
-  const bookedAt = new Date(receipt.bookedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>KhammamCare Receipt ${escapeHtml(receipt.token)}</title><style>
-    *{box-sizing:border-box}body{margin:0;background:#eef7fc;color:#172033;font:15px Arial,sans-serif}.receipt{width:min(760px,calc(100% - 32px));margin:40px auto;background:#fff;border:1px solid #dceaf4;border-radius:18px;overflow:hidden;box-shadow:0 18px 50px #16466d18}.head{padding:28px 32px;background:#087fdb;color:#fff;display:flex;justify-content:space-between;gap:20px}.brand{font-size:25px;font-weight:800}.head small{display:block;margin-top:5px;opacity:.8}.status{text-align:right;font-size:12px;font-weight:700;letter-spacing:1px}.body{padding:30px 32px}.token{padding:16px 20px;margin-bottom:24px;background:#eaf7ff;border:1px dashed #087fdb;border-radius:12px;color:#087fdb}.token small{display:block;color:#52677c;font-size:11px;letter-spacing:1px}.token strong{display:block;margin-top:4px;font-size:28px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;border-bottom:1px solid #e5edf5;padding-bottom:22px}.item label{display:block;color:#7b8492;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}.item strong{display:block;line-height:1.4}.payment{display:flex;justify-content:space-between;padding:20px 0;font-weight:700}.note{padding:14px;background:#f7fbff;border-radius:10px;color:#617084;font-size:12px}.foot{padding:18px 32px;border-top:1px solid #e5edf5;color:#7b8492;font-size:12px}@media(max-width:560px){.head,.body,.foot{padding:22px}.head,.payment{display:block}.status{text-align:left;margin-top:12px}.grid{grid-template-columns:1fr}.payment strong{display:block;margin-top:6px}}@media print{body{background:#fff}.receipt{width:100%;margin:0;border:0;box-shadow:none}.head{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-  </style></head><body><main class="receipt"><header class="head"><div><div class="brand">KhammamCare</div><small>Doctors &amp; Hospitals</small></div><div class="status">PAYMENT RECEIPT<br>APPOINTMENT CONFIRMED</div></header><section class="body"><div class="token"><small>APPOINTMENT TOKEN</small><strong>${escapeHtml(receipt.token)}</strong></div><div class="grid"><div class="item"><label>Patient</label><strong>${escapeHtml(receipt.name)}</strong><span>Age: ${escapeHtml(receipt.age)} &bull; ${escapeHtml(receipt.phone)}</span></div><div class="item"><label>Doctor</label><strong>${escapeHtml(receipt.doctor)}</strong></div><div class="item"><label>Hospital</label><strong>${escapeHtml(receipt.hospital)}</strong></div><div class="item"><label>Appointment</label><strong>${escapeHtml(receipt.date)} at ${escapeHtml(receipt.time)}</strong></div></div><div class="payment"><span>Total paid (${escapeHtml(receipt.payment)})</span><strong>₹${escapeHtml(receipt.amount)}.00</strong></div><div class="note">This is a demo payment receipt generated by KhammamCare. Please carry this token when contacting the hospital.</div></section><footer class="foot">Generated on ${escapeHtml(bookedAt)} &bull; KhammamCare, Khammam Telangana</footer></main></body></html>`;
+const downloadReceipt = (receipt) => {
+  const bookedAt = new Date(receipt.bookedAt).toLocaleString('en-IN', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>KhammamCare Receipt ${escapeHtml(
+    receipt.token,
+  )}</title><style>
+*{box-sizing:border-box}body{margin:0;background:#eef7fc;color:#172033;font:15px Arial,sans-serif}.receipt{width:min(760px,calc(100% - 32px));margin:40px auto;background:#fff;border:1px solid #dceaf4;border-radius:18px;overflow:hidden;box-shadow:0 18px 50px #16466d18}.head{padding:28px 32px;background:#087fdb;color:#fff;display:flex;justify-content:space-between;gap:20px}.brand{font-size:25px;font-weight:800}.head small{display:block;margin-top:5px;opacity:.8}.status{text-align:right;font-size:12px;font-weight:700;letter-spacing:1px}.body{padding:30px 32px}.token{padding:16px 20px;margin-bottom:24px;background:#eaf7ff;border:1px dashed #087fdb;border-radius:12px;color:#087fdb}.token small{display:block;color:#52677c;font-size:11px;letter-spacing:1px}.token strong{display:block;margin-top:4px;font-size:28px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;border-bottom:1px solid #e5edf5;padding-bottom:22px}.item label{display:block;color:#7b8492;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}.item strong{display:block;line-height:1.4}.payment{display:flex;justify-content:space-between;padding:20px 0;font-weight:700}.note{padding:14px;background:#f7fbff;border-radius:10px;color:#617084;font-size:12px}.foot{padding:18px 32px;border-top:1px solid #e5edf5;color:#7b8492;font-size:12px}@media(max-width:560px){.head,.body,.foot{padding:22px}.head,.payment{display:block}.status{text-align:left;margin-top:12px}.grid{grid-template-columns:1fr}.payment strong{display:block;margin-top:6px}}@media print{body{background:#fff}.receipt{width:100%;margin:0;border:0;box-shadow:none}.head{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body><main class="receipt"><header class="head"><div><div class="brand">KhammamCare</div><small>Doctors &amp; Hospitals</small></div><div class="status">PAYMENT RECEIPT<br>APPOINTMENT CONFIRMED</div></header><section class="body"><div class="token"><small>APPOINTMENT TOKEN</small><strong>${escapeHtml(
+    receipt.token,
+  )}</strong></div><div class="grid"><div class="item"><label>Patient</label><strong>${escapeHtml(
+    receipt.name,
+  )}</strong><span>Age: ${escapeHtml(receipt.age)} &bull; ${escapeHtml(
+    receipt.phone,
+  )}</span></div><div class="item"><label>Doctor</label><strong>${escapeHtml(
+    receipt.doctor,
+  )}</strong></div><div class="item"><label>Hospital</label><strong>${escapeHtml(
+    receipt.hospital,
+  )}</strong></div><div class="item"><label>Appointment</label><strong>${escapeHtml(
+    receipt.date,
+  )} at ${escapeHtml(receipt.time)}</strong></div></div><div class="payment"><span>Total paid (${escapeHtml(
+    receipt.payment,
+  )})</span><strong>₹${escapeHtml(receipt.amount)}.00</strong></div><div class="note">This is a demo payment receipt generated by KhammamCare. Please carry this token when contacting the hospital.</div></section><footer class="foot">Generated on ${escapeHtml(
+    bookedAt,
+  )} &bull; KhammamCare, Khammam Telangana</footer></main></body></html>`;
+
   const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -48,149 +140,1971 @@ const hospitalPhotos = [
   'https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?auto=format&fit=crop&w=900&q=80',
   'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=900&q=80',
   'https://images.unsplash.com/photo-1527613426441-4da17471b66d?auto=format&fit=crop&w=900&q=80',
-  'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=900&q=80'
+  'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=900&q=80',
 ];
-const timeSlots = ['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '12:00 PM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'];
+
+const timeSlots = [
+  '09:00 AM',
+  '09:30 AM',
+  '10:00 AM',
+  '10:30 AM',
+  '11:00 AM',
+  '11:30 AM',
+  '12:00 PM',
+  '01:00 PM',
+  '02:00 PM',
+  '03:00 PM',
+  '04:00 PM',
+  '05:00 PM',
+];
+
 const doctorPhotos = [
   'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=500&q=80',
   'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&w=500&q=80',
   'https://images.unsplash.com/photo-1594824476967-48c8b964273f?auto=format&fit=crop&w=500&q=80',
   'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=500&q=80',
-  'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=500&q=80'
+  'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=500&q=80',
 ];
 
 function Modal({ children, onClose, className = '' }) {
-  return <div className="modal show" onClick={e => e.target === e.currentTarget && onClose()}><div className={`modal-card ${className}`}>{children}</div></div>;
+  return (
+    <div
+      className="modal show"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className={`modal-card ${className}`}>{children}</div>
+    </div>
+  );
 }
 
-export default function App() {
-  const { doctors, hospitals, emergencyFacilities, loading: directoryLoading, error: directoryError } = useDirectory();
-  const [query, setQuery] = useState(''), [docSpec, setDocSpec] = useState(''), [docHospital, setDocHospital] = useState(''), [docArea, setDocArea] = useState(''), [openNow, setOpenNow] = useState(false);
-  const [shown, setShown] = useState(24), [menu, setMenu] = useState(false), [selectedDoctor, setSelectedDoctor] = useState('');
-  const [payment, setPayment] = useState(null), [paymentMode, setPaymentMode] = useState('UPI'), [paymentInput, setPaymentInput] = useState(''), [success, setSuccess] = useState(null), [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: '', phone: '', age: '', hospital: '', doctor: '', date: '', time: '', reason: '' });
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error('App render error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <main className="admin-page">
+          <div className="admin-empty">
+            <h2>Something went wrong</h2>
+            <p>Please refresh the page and try again.</p>
+          </div>
+        </main>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+function AppContent() {
+  const {
+    doctors,
+    hospitals,
+    emergencyFacilities,
+    loading: directoryLoading,
+    error: directoryError,
+  } = useDirectory();
+
+  const [query, setQuery] = useState('');
+  const [docSpec, setDocSpec] = useState('');
+  const [docHospital, setDocHospital] = useState('');
+  const [docArea, setDocArea] = useState('');
+  const [openNow, setOpenNow] = useState(false);
+  const [shown, setShown] = useState(24);
+  const [menu, setMenu] = useState(false);
+  const [selectedHospital, setSelectedHospital] = useState('');
+  const [selectedDoctor, setSelectedDoctor] = useState('');
+
+  const [login, setLogin] = useState(false);
+  const [authMode, setAuthMode] = useState('login');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authPhone, setAuthPhone] = useState('');
+  const [authOtp, setAuthOtp] = useState('');
+  const [authMethod, setAuthMethod] = useState('email');
+  const [authError, setAuthError] = useState('');
+  const [authSuccess, setAuthSuccess] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [phoneConfirmation, setPhoneConfirmation] = useState(null);
+  const [otpSent, setOtpSent] = useState(false);
+
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [pendingAction, setPendingAction] = useState(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  const [payment, setPayment] = useState(null);
+  const [paymentMode, setPaymentMode] = useState('UPI');
+  const [paymentInput, setPaymentInput] = useState('');
+  const [success, setSuccess] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const [form, setForm] = useState({
+    name: '',
+    phone: '',
+    age: '',
+    hospital: '',
+    doctor: '',
+    date: '',
+    time: '',
+    reason: '',
+  });
+
   const [reservedSlots, setReservedSlots] = useState([]);
   const [language, setLanguage] = useState('en');
-  const doctorRatings = {};
-  const t = key => translations[language][key] || translations.en[key];
+  const [doctorRatings, setDoctorRatings] = useState({});
+
+  const accountName =
+    user?.displayName?.trim() || user?.email?.split('@')[0] || 'Account';
+
+  const t = (key) => translations[language][key] || translations.en[key];
+
+  const emailNeedsVerification =
+    user?.providerData.some((provider) => provider.providerId === 'password') &&
+    !user.emailVerified;
 
   useEffect(() => {
-    const bookedSlots = readAppointments()
-      .filter(appointment => appointment.doctor === form.doctor && appointment.date === form.date && appointment.status !== 'canceled')
-      .map(appointment => appointment.time);
-    setReservedSlots(bookedSlots);
-  }, [form.doctor, form.date]);
+    return onAuthStateChanged(auth, async (currentUser) => {
+      if (currentUser) {
+        try {
+          await currentUser.reload();
+        } catch (error) {
+          console.warn('Firebase user reload failed:', error);
+        }
+      }
 
-  const specialities = useMemo(() => [...new Set(doctors.map(d => d[1]))].sort(), []);
-  const hospitalNames = useMemo(() => [...new Set(doctors.map(d => d[2]))].sort(), [doctors]);
-  const areaNames = useMemo(() => [...new Set(hospitals.map(h => h[4]).filter(Boolean))].sort(), [hospitals]);
-  const hospitalByName = useMemo(() => new Map(hospitals.map(hospital => [hospital[0], hospital])), [hospitals]);
-  const availableSpecialities = useMemo(() => {
-    if (!form.hospital) return specialities;
-    return [...new Set(doctors.filter(d => d[2] === form.hospital).map(d => d[1]))].sort();
-  }, [form.hospital, specialities]);
-  const availableDoctors = useMemo(() => doctors
-    .filter(d => !form.hospital || d[2] === form.hospital)
-    .sort((first, second) => first[0].localeCompare(second[0])), [form.hospital]);
-  const filtered = useMemo(() => doctors.filter(d => {
-    const q = (query + ' ' + (selectedDoctor || '')).trim().toLowerCase();
-    const hospital = hospitalByName.get(d[2]);
-    return (!q || d.join(' ').toLowerCase().includes(q)) && (!docSpec || d[1] === docSpec) && (!docHospital || d[2] === docHospital) && (!docArea || hospital?.[4] === docArea) && (!openNow || hospital?.[5]);
-  }), [query, selectedDoctor, docSpec, docHospital, docArea, openNow, hospitalByName]);
-  const visible = filtered.slice(0, shown);
-  const update = (k, v) => setForm(f => ({ ...f, [k]: v }));
+      const refreshedUser = auth.currentUser ?? currentUser;
+      setUser(refreshedUser);
+      setAuthReady(true);
+    });
+  }, []);
 
-  const chooseHospital = hospital => { update('hospital', hospital); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); };
-  const chooseDoctor = (doctor, hospital) => { setSelectedDoctor(doctor); update('doctor', doctor); update('hospital', hospital); document.querySelector('#appointment')?.scrollIntoView({ behavior: 'smooth' }); };
+  useEffect(() => {
+    if (!authSuccess) return undefined;
 
-  const submit = e => {
-    e.preventDefault();
-    const validationError = validateAppointment(form);
-    if (validationError) {
-      window.alert(validationError);
+    const timer = window.setTimeout(() => setAuthSuccess(''), 6000);
+    return () => window.clearTimeout(timer);
+  }, [authSuccess]);
+
+  useEffect(() => {
+    if (!authReady || !user) return;
+
+    const verificationMessage = getVerificationStatus(user);
+    if (verificationMessage) {
+      setAuthSuccess(verificationMessage);
+    }
+  }, [authReady, user]);
+
+  useEffect(() => {
+    return onSnapshot(
+      collection(db, 'ratings'),
+      (snapshot) => {
+        const totals = {};
+        snapshot.docs.forEach((item) => {
+          const data = item.data();
+          if (!data.doctor || !data.rating) return;
+          totals[data.doctor] ||= { total: 0, count: 0 };
+          totals[data.doctor].total += data.rating;
+          totals[data.doctor].count += 1;
+        });
+        setDoctorRatings(totals);
+      },
+      (error) => console.error('Rating load failed:', error),
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!user || !form.doctor || !form.date) {
+      setReservedSlots([]);
+      return undefined;
+    }
+
+    const slotsQuery = firestoreQuery(
+      collection(db, 'slotReservations'),
+      where('doctor', '==', form.doctor),
+      where('date', '==', form.date),
+      where('status', '==', 'reserved'),
+    );
+
+    return onSnapshot(
+      slotsQuery,
+      (snapshot) => {
+        setReservedSlots(snapshot.docs.map((slot) => slot.data().time));
+      },
+      (error) => {
+        console.error(error);
+        setReservedSlots([]);
+      },
+    );
+  }, [user, form.doctor, form.date]);
+
+  useEffect(() => {
+    if (!authReady || login || authLoading || !pendingAction) return;
+
+    if (!user) {
+      setAuthError('');
+      setAuthMode('login');
+      setLogin(true);
       return;
     }
+
+    const action = pendingAction;
+    setPendingAction(null);
+    action();
+  }, [authReady, login, authLoading, pendingAction, user]);
+
+  const specialities = useMemo(
+    () => [...new Set(doctors.map((d) => d[1]))].sort(),
+    [doctors],
+  );
+
+  const hospitalNames = useMemo(
+    () => [...new Set(doctors.map((d) => d[2]))].sort(),
+    [doctors],
+  );
+
+  const areaNames = useMemo(
+    () => [...new Set(hospitals.map((h) => h[4]).filter(Boolean))].sort(),
+    [hospitals],
+  );
+
+  const hospitalByName = useMemo(
+    () => new Map(hospitals.map((hospital) => [hospital[0], hospital])),
+    [hospitals],
+  );
+
+  const availableSpecialities = useMemo(() => {
+    if (!form.hospital) return specialities;
+    return [
+      ...new Set(
+        doctors.filter((d) => d[2] === form.hospital).map((d) => d[1]),
+      ),
+    ].sort();
+  }, [form.hospital, specialities, doctors]);
+
+  const availableDoctors = useMemo(
+    () =>
+      doctors
+        .filter((d) => !form.hospital || d[2] === form.hospital)
+        .sort((first, second) => first[0].localeCompare(second[0])),
+    [form.hospital, doctors],
+  );
+
+  const filtered = useMemo(
+    () =>
+      doctors.filter((d) => {
+        const q = (query + ' ' + (selectedDoctor || '')).trim().toLowerCase();
+        const hospital = hospitalByName.get(d[2]);
+
+        return (
+          (!q || d.join(' ').toLowerCase().includes(q)) &&
+          (!docSpec || d[1] === docSpec) &&
+          (!docHospital || d[2] === docHospital) &&
+          (!docArea || hospital?.[4] === docArea) &&
+          (!openNow || hospital?.[5])
+        );
+      }),
+    [
+      query,
+      selectedDoctor,
+      docSpec,
+      docHospital,
+      docArea,
+      openNow,
+      hospitalByName,
+      doctors,
+    ],
+  );
+
+  const visible = filtered.slice(0, shown);
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  // ------------------------------------------------------------
+  // Firebase Phone OTP / reCAPTCHA
+  // ------------------------------------------------------------
+  const clearRecaptcha = () => {
+    if (typeof window === 'undefined') return;
+
+    const verifier = window.recaptchaVerifier;
+    if (verifier) {
+      try {
+        verifier.clear();
+      } catch (error) {
+        console.warn('reCAPTCHA cleanup warning:', error);
+      }
+    }
+
+    delete window.recaptchaVerifier;
+  };
+
+  const getRecaptchaVerifier = () => {
+    if (typeof window === 'undefined') return null;
+
+    if (
+      window.recaptchaVerifier &&
+      typeof window.recaptchaVerifier.clear === 'function'
+    ) {
+      return window.recaptchaVerifier;
+    }
+
+    const verifier = new RecaptchaVerifier(auth, 'phone-recaptcha', {
+      size: 'invisible',
+      callback: () => {
+        console.log('Firebase reCAPTCHA verified');
+      },
+      'expired-callback': () => {
+        setAuthError('reCAPTCHA expired. Please try sending OTP again.');
+        clearRecaptcha();
+      },
+    });
+
+    window.recaptchaVerifier = verifier;
+    return verifier;
+  };
+
+  const resetPhoneAuth = () => {
+    setAuthPhone('');
+    setAuthOtp('');
+    setOtpSent(false);
+    setPhoneConfirmation(null);
+    clearRecaptcha();
+  };
+
+  const openLogin = () => {
+    setAuthError('');
+    setAuthMode('login');
+    setAuthMethod('email');
+    resetPhoneAuth();
+    setLogin(true);
+  };
+
+  const closeLogin = () => {
+    setLogin(false);
+    setPendingAction(null);
+    setAuthMode('login');
+    setAuthMethod('email');
+    resetPhoneAuth();
+  };
+
+  const runAfterLogin = (action) => {
+    if (authReady && user) {
+      action();
+      return;
+    }
+
+    setPendingAction(() => action);
+    if (authReady) openLogin();
+  };
+
+  const chooseHospital = (hospital) =>
+    runAfterLogin(() => {
+      setSelectedHospital(hospital);
+      update('hospital', hospital);
+      document
+        .querySelector('#appointment')
+        ?.scrollIntoView({ behavior: 'smooth' });
+    });
+
+  const chooseDoctor = (doctor, hospital) =>
+    runAfterLogin(() => {
+      setSelectedDoctor(doctor);
+      update('doctor', doctor);
+      update('hospital', hospital);
+      document
+        .querySelector('#appointment')
+        ?.scrollIntoView({ behavior: 'smooth' });
+    });
+
+  const handleAuth = async (event) => {
+    event.preventDefault();
+    setAuthError('');
+
+    // PHONE OTP LOGIN
+    if (authMethod === 'phone') {
+      const normalizedPhone = authPhone.replace(/\D/g, '');
+
+      if (!authUsername.trim()) {
+        setAuthError('Please enter your username.');
+        return;
+      }
+
+      if (normalizedPhone.length !== 10) {
+        setAuthError('Please enter a valid 10-digit Indian mobile number.');
+        return;
+      }
+
+      setAuthLoading(true);
+
+      try {
+        const phoneNumber = `+91${normalizedPhone}`;
+        const appVerifier = getRecaptchaVerifier();
+
+        if (!appVerifier) {
+          throw new Error('Firebase reCAPTCHA could not be initialized.');
+        }
+
+        const confirmationResult = await signInWithPhoneNumber(
+          auth,
+          phoneNumber,
+          appVerifier,
+        );
+
+        setPhoneConfirmation(confirmationResult);
+        setOtpSent(true);
+        setAuthSuccess('OTP sent successfully. Enter the 6-digit OTP.');
+        setAuthError('');
+      } catch (error) {
+        console.error('Firebase OTP send error:', error);
+
+        const messages = {
+          'auth/invalid-phone-number': 'Invalid mobile number.',
+          'auth/too-many-requests':
+            'Too many OTP requests. Please wait and try again later.',
+          'auth/quota-exceeded':
+            'Firebase SMS quota exceeded. Please try again later.',
+          'auth/captcha-check-failed':
+            'reCAPTCHA verification failed. Please try again.',
+          'auth/invalid-app-credential':
+            'Firebase app verification failed. Check Authorized Domains.',
+          'auth/operation-not-allowed':
+            'Phone authentication is not enabled in Firebase Console.',
+          'auth/network-request-failed':
+            'Network error. Check your internet connection.',
+        };
+
+        setAuthError(
+          messages[error.code] ||
+            error.message ||
+            'Unable to send OTP. Please try again.',
+        );
+
+        clearRecaptcha();
+      } finally {
+        setAuthLoading(false);
+      }
+
+      return;
+    }
+
+    // EMAIL LOGIN / REGISTER
+    if (authMode === 'register' && !authUsername.trim()) {
+      setAuthError('Please enter a username.');
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      if (authMode === 'register') {
+        const credential = await createUserWithEmailAndPassword(
+          auth,
+          authEmail.trim(),
+          authPassword,
+        );
+
+        await updateProfile(credential.user, {
+          displayName: authUsername.trim(),
+        });
+
+        await sendEmailVerification(credential.user);
+        await signOut(auth);
+
+        setAuthError(
+          'Account created. Check your email and verify your address before logging in.',
+        );
+        setAuthSuccess('Verification email sent. Please verify your email.');
+        setAuthMode('login');
+        setAuthUsername('');
+        setAuthPassword('');
+        return;
+      }
+
+      const credential = await signInWithEmailAndPassword(
+        auth,
+        authEmail.trim(),
+        authPassword,
+      );
+
+      if (!credential.user.emailVerified) {
+        await signOut(auth);
+        setAuthError(
+          'Please verify your email before booking. Check your inbox for the verification link.',
+        );
+        return;
+      }
+
+      setAuthSuccess('Login successful.');
+      setLogin(false);
+      setAuthUsername('');
+      setAuthEmail('');
+      setAuthPassword('');
+      setAuthMode('login');
+      setAuthMethod('email');
+      resetPhoneAuth();
+    } catch (error) {
+      console.error('Firebase email auth error:', error);
+
+      const messages = {
+        'auth/email-already-in-use':
+          'This email is already registered. Please login.',
+        'auth/invalid-credential': 'Invalid email or password.',
+        'auth/weak-password': 'Password must be at least 6 characters.',
+        'auth/invalid-email': 'Please enter a valid email address.',
+        'auth/user-not-found': 'No account exists for this email address.',
+        'auth/too-many-requests':
+          'Too many attempts. Please wait a moment and try again.',
+      };
+
+      setAuthError(messages[error.code] || error.message || 'Authentication failed.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const resetPassword = async () => {
+    if (!authEmail.trim()) {
+      setAuthError(
+        'Enter your email address first, then choose Forgot password.',
+      );
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      await sendPasswordResetEmail(auth, authEmail.trim());
+      setAuthError('Password reset email sent. Check your inbox.');
+    } catch (error) {
+      console.error(error);
+      setAuthError(
+        error.code === 'auth/user-not-found'
+          ? 'No account exists for this email address.'
+          : 'Unable to send the reset email. Please try again.',
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const verifyPhoneOtp = async (event) => {
+    event.preventDefault();
+
+    if (!phoneConfirmation) {
+      setAuthError('Please request an OTP first.');
+      return;
+    }
+
+    const otp = authOtp.trim();
+
+    if (!/^\d{6}$/.test(otp)) {
+      setAuthError('Please enter the 6-digit OTP.');
+      return;
+    }
+
+    setAuthLoading(true);
+
+    try {
+      const confirmedUser = await phoneConfirmation.confirm(otp);
+
+      if (authUsername.trim()) {
+        await updateProfile(confirmedUser.user, {
+          displayName: authUsername.trim(),
+        });
+      }
+
+      setAuthSuccess('Login successful.');
+      setLogin(false);
+      setAuthMode('login');
+      setAuthMethod('email');
+      setAuthUsername('');
+      setAuthEmail('');
+      setAuthPassword('');
+      setAuthPhone('');
+      setAuthOtp('');
+      setOtpSent(false);
+      setPhoneConfirmation(null);
+      clearRecaptcha();
+    } catch (error) {
+      console.error('Firebase OTP verification error:', error);
+
+      const messages = {
+        'auth/invalid-verification-code':
+          'Incorrect OTP. Please enter the correct 6-digit code.',
+        'auth/code-expired': 'OTP expired. Please request a new OTP.',
+        'auth/too-many-requests':
+          'Too many attempts. Please try again later.',
+        'auth/network-request-failed':
+          'Network error. Check your internet connection.',
+      };
+
+      setAuthError(
+        messages[error.code] ||
+          error.message ||
+          'OTP verification failed. Please try again.',
+      );
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const submit = (event) => {
+    event.preventDefault();
+
+    const validationError = validateAppointment(form);
+
+    if (validationError) {
+      setAuthError(validationError);
+      return;
+    }
+
+    if (emailNeedsVerification) {
+      setAuthError('Verify your email address before booking an appointment.');
+      return;
+    }
+
+    setAuthError('');
+
+    if (!user) {
+      runAfterLogin(() => setPayment(true));
+      return;
+    }
+
     setPayment(true);
   };
 
-  const finish = () => {
-    setSaving(true);
-    const token = 'KHM-' + Math.floor(1000 + Math.random() * 9000);
-    try {
-      const bookedAt = new Date().toISOString();
-      const appointment = { id: token, ...form, amount: APPOINTMENT_FEE, paymentMode, paymentStatus: 'demo-paid', token, status: 'confirmed', createdAt: bookedAt };
-      localStorage.setItem(APPOINTMENTS_KEY, JSON.stringify([...readAppointments(), appointment]));
-      setReservedSlots(current => [...current, form.time]);
+  const finish = async () => {
+    if (!user) {
       setPayment(false);
-      setSuccess({ ...form, amount: APPOINTMENT_FEE, payment: `${paymentMode} (demo)`, token, bookedAt });
-      setForm({ name: '', phone: '', age: '', hospital: '', doctor: '', date: '', time: '', reason: '' });
+      openLogin();
+      return;
+    }
+
+    setSaving(true);
+
+    const token = 'KHM-' + Math.floor(1000 + Math.random() * 9000);
+    const slotId = [form.doctor, form.date, form.time]
+      .map((value) => encodeURIComponent(value))
+      .join('__');
+
+    try {
+      const appointmentRef = doc(collection(db, 'appointments'));
+      const slotRef = doc(db, 'slotReservations', slotId);
+
+      await runTransaction(db, async (transaction) => {
+        const slotSnapshot = await transaction.get(slotRef);
+
+        if (
+          slotSnapshot.exists() &&
+          slotSnapshot.data().status === 'reserved'
+        ) {
+          const error = new Error(
+            'This time slot was just booked by another patient. Please choose another slot.',
+          );
+          error.code = 'slot-taken';
+          throw error;
+        }
+
+        transaction.set(slotRef, {
+          doctor: form.doctor,
+          date: form.date,
+          time: form.time,
+          userId: user.uid,
+          appointmentId: appointmentRef.id,
+          status: 'reserved',
+          createdAt: serverTimestamp(),
+        });
+
+        transaction.set(appointmentRef, {
+          ...form,
+          userId: user.uid,
+          userEmail: user.email,
+          amount: APPOINTMENT_FEE,
+          paymentMode,
+          paymentStatus: 'demo-paid',
+          token,
+          status: 'confirmed',
+          slotId,
+          notification: {
+            type: 'booking-confirmation',
+            status: 'pending',
+            email: user.email,
+            phone: form.phone,
+          },
+          paymentProvider: 'demo',
+          createdAt: serverTimestamp(),
+        });
+      });
+
+      setPayment(false);
+      setSuccess({
+        ...form,
+        amount: APPOINTMENT_FEE,
+        payment: `${paymentMode} (demo)`,
+        token,
+        bookedAt: new Date().toISOString(),
+      });
+
+      setForm({
+        name: '',
+        phone: '',
+        age: '',
+        hospital: '',
+        doctor: '',
+        date: '',
+        time: '',
+        reason: '',
+      });
       setPaymentInput('');
       setPaymentMode('UPI');
     } catch (error) {
       console.error(error);
-      window.alert('Could not save the appointment in this browser. Check available storage and try again.');
+
+      if (error.code === 'slot-taken') {
+        setPayment(false);
+        setAuthError(error.message);
+      } else {
+        alert(
+          'Appointment save failed. Check Firebase Firestore setup and rules.',
+        );
+      }
     } finally {
       setSaving(false);
     }
   };
 
-  if (directoryLoading) return <main className="admin-page"><div className="admin-empty"><span className="loading-spinner" />Loading the Khammam directory...</div></main>;
+  if (directoryLoading) {
+    return (
+      <main className="admin-page">
+        <div className="admin-empty">
+          <span className="loading-spinner" />
+          Loading the Khammam directory...
+        </div>
+      </main>
+    );
+  }
 
-  return <>
-    <header className="header"><div className="container nav"><a className="brand" href="#home"><span className="brand-icon">✚</span><span>Khammam<span>Care</span><small>Doctors & Hospitals</small></span></a><button className="menu-btn" onClick={() => setMenu(!menu)}>☰</button><nav className={menu ? 'open' : ''}><a href="#home">{t('home')}</a><a href="#hospitals">{t('hospitals')}</a><a href="#doctors">{t('doctors')}</a><a href="#appointment" onClick={() => setMenu(false)}>{t('appointment')}</a><a href="#about">{t('about')}</a><a href="/appointments">{t('myAppointments')}</a></nav><div className="nav-actions"><button type="button" className="outline-btn" onClick={() => setLanguage(current => current === 'en' ? 'te' : 'en')} aria-label="Switch language">{language === 'en' ? 'తెలుగు' : 'English'}</button></div></div></header>
-    <main>
-      {directoryError && <div className="offline-banner" role="status">{directoryError}</div>}
-      <section className="section emergency-section" id="emergency"><div className="container"><div className="section-head"><div><div className="eyebrow">EMERGENCY HELP</div><h2>Khammam emergency contacts</h2><p>Call first in an emergency. These public contacts are provided for quick access.</p></div></div><div className="emergency-grid">{emergencyFacilities.map(facility => <article className="emergency-card" key={`${facility.type}-${facility.name}`}><span className="tag">{facility.type}</span><h3>{facility.name}</h3><p>{facility.address}</p><a className="primary-btn" href={facility.action}>{facility.phone}</a></article>)}</div></div></section>
-      <section className="hero" id="home">
-        <div className="container hero-grid">
-          <div>
-            <div className="eyebrow">KHAMMAM • TELANGANA</div>
-            <h1>Find trusted <span>doctors</span> and hospitals in Khammam.</h1>
-            <p>Search publicly listed directory information, view hospital locations and send an appointment request from one professional React website.</p>
-            <div className="hero-actions">
-              <a className="primary-btn" href="#appointment">Appointment</a>
-              <a className="secondary-btn" href="#doctors">Find a Doctor →</a>
-              <a className="secondary-btn" href="#hospitals">View Hospitals</a>
+  if (payment) {
+    return (
+      <main className="checkout-page">
+        <header className="checkout-header">
+          <a className="brand" href="#home">
+            <span className="brand-icon">✚</span>
+            <span>
+              Khammam<span>Care</span>
+              <small>Doctors &amp; Hospitals</small>
+            </span>
+          </a>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => setPayment(false)}
+          >
+            Back to appointment
+          </button>
+        </header>
+
+        <div className="checkout-title">
+          <div className="eyebrow">SECURE CHECKOUT • DEMO</div>
+          <h1>Choose a payment method</h1>
+          <p>No real payment will be processed or charged.</p>
+        </div>
+
+        <div className="checkout-layout">
+          <section className="checkout-card">
+            <h2>Payment method</h2>
+            <div className="pay-options">
+              {[
+                { name: 'UPI', Icon: Smartphone },
+                { name: 'Card', Icon: CreditCard },
+                { name: 'Net Banking', Icon: Landmark },
+              ].map(({ name, Icon }) => (
+                <button
+                  key={name}
+                  type="button"
+                  className={paymentMode === name ? 'active' : ''}
+                  aria-pressed={paymentMode === name}
+                  onClick={() => {
+                    setPaymentMode(name);
+                    setPaymentInput('');
+                  }}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>{name}</span>
+                </button>
+              ))}
             </div>
-            <div className="stats">
-              <div><b>119+</b><small>GGH specialists listed online</small></div>
-              <div><b>{hospitals.length}+</b><small>local hospitals/directories</small></div>
-              <div><b>24/7</b><small>emergency information</small></div>
+
+            {paymentMode === 'UPI' && (
+              <label className="checkout-field">
+                UPI ID <span>(demo)</span>
+                <input
+                  className="payment-input"
+                  placeholder="name@bank"
+                  autoComplete="off"
+                  value={paymentInput}
+                  onChange={(event) => setPaymentInput(event.target.value)}
+                />
+              </label>
+            )}
+
+            {paymentMode === 'Card' && (
+              <div className="payment-fields checkout-card-fields">
+                <label className="checkout-field">
+                  Card number <span>(demo)</span>
+                  <input
+                    className="payment-input"
+                    placeholder="1234 5678 9012 3456"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    value={paymentInput}
+                    onChange={(event) =>
+                      setPaymentInput(
+                        event.target.value.replace(/\D/g, '').slice(0, 16),
+                      )
+                    }
+                  />
+                </label>
+                <div className="form-row">
+                  <label className="checkout-field">
+                    Expiry <span>(demo)</span>
+                    <input placeholder="MM/YY" autoComplete="off" />
+                  </label>
+                  <label className="checkout-field">
+                    CVV <span>(demo)</span>
+                    <input
+                      placeholder="123"
+                      type="password"
+                      inputMode="numeric"
+                      maxLength="3"
+                      autoComplete="off"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {paymentMode === 'Net Banking' && (
+              <label className="checkout-field">
+                Select bank <span>(demo)</span>
+                <select
+                  className="payment-input"
+                  value={paymentInput}
+                  onChange={(event) => setPaymentInput(event.target.value)}
+                >
+                  <option value="">Choose a bank</option>
+                  <option>State Bank of India</option>
+                  <option>HDFC Bank</option>
+                  <option>ICICI Bank</option>
+                  <option>Axis Bank</option>
+                </select>
+              </label>
+            )}
+
+            <button
+              type="button"
+              className="primary-btn full checkout-submit"
+              onClick={finish}
+              disabled={saving}
+            >
+              {saving
+                ? 'Confirming appointment...'
+                : `Confirm demo payment · ₹${APPOINTMENT_FEE}`}
+            </button>
+          </section>
+
+          <aside className="checkout-card checkout-summary">
+            <h2>Appointment summary</h2>
+            <dl>
+              <div><dt>Patient</dt><dd>{form.name}</dd></div>
+              <div><dt>Doctor</dt><dd>{form.doctor}</dd></div>
+              <div><dt>Hospital</dt><dd>{form.hospital}</dd></div>
+              <div><dt>Date and time</dt><dd>{form.date} · {form.time}</dd></div>
+            </dl>
+            <div className="checkout-total">
+              <span>Total <small>(demo)</small></span>
+              <strong>₹{APPOINTMENT_FEE}</strong>
+            </div>
+            <p className="checkout-disclaimer">This is a demonstration checkout. No real payment will be charged.</p>
+          </aside>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <>
+      <header className="header">
+        <div className="container nav">
+          <a className="brand" href="#home">
+            <span className="brand-icon">✚</span>
+            <span>
+              Khammam<span>Care</span>
+              <small>Doctors &amp; Hospitals</small>
+            </span>
+          </a>
+
+          <button
+            className="menu-btn"
+            onClick={() => setMenu(!menu)}
+            aria-label="Open menu"
+          >
+            ☰
+          </button>
+
+          <nav className={menu ? 'open' : ''}>
+            <a href="#home">{t('home')}</a>
+            <a href="#hospitals">{t('hospitals')}</a>
+            <a href="#doctors">{t('doctors')}</a>
+            <a
+              href="#appointment"
+              onClick={(event) => {
+                event.preventDefault();
+                setMenu(false);
+                runAfterLogin(() =>
+                  document
+                    .querySelector('#appointment')
+                    ?.scrollIntoView({ behavior: 'smooth' }),
+                );
+              }}
+            >
+              {t('appointment')}
+            </a>
+            <a href="#about">{t('about')}</a>
+            <a href="/appointments">{t('myAppointments')}</a>
+          </nav>
+
+          <div className="nav-actions">
+            <button
+              type="button"
+              className="outline-btn"
+              onClick={() =>
+                setLanguage((current) => (current === 'en' ? 'te' : 'en'))
+              }
+              aria-label="Switch language"
+            >
+              {language === 'en' ? 'తెలుగు' : 'English'}
+            </button>
+
+            {user ? (
+              <div style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className="outline-btn auth-nav-btn"
+                  aria-label={`Account ${accountName}`}
+                  title={`Account ${accountName}`}
+                  disabled={!authReady}
+                  onClick={() => setUserMenuOpen((current) => !current)}
+                >
+                  <UserRound aria-hidden="true" />
+                  <span className="auth-user-name">{accountName}</span>
+                </button>
+
+                {userMenuOpen && (
+                  <div className="user-menu user-menu-desktop">
+                    <button
+                      type="button"
+                      className="user-menu-item"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        window.location.href = '/appointments';
+                      }}
+                    >
+                      My Appointments
+                    </button>
+                    <button
+                      type="button"
+                      className="user-menu-item"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        signOut(auth);
+                      }}
+                    >
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="outline-btn auth-nav-btn"
+                aria-label={authReady ? 'Login' : 'Checking authentication'}
+                title={authReady ? 'Login' : 'Checking authentication'}
+                disabled={!authReady}
+                onClick={openLogin}
+              >
+                <UserRound aria-hidden="true" />
+                <span className="auth-action-label">
+                  {authReady ? 'Login' : 'Checking...'}
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      <main>
+        {directoryError && (
+          <div className="offline-banner" role="status">
+            {directoryError}
+          </div>
+        )}
+
+        {authSuccess && (
+          <div className="container" style={{ marginTop: '1rem' }}>
+            <div
+              role="status"
+              aria-live="polite"
+              style={{
+                background: '#eafaf1',
+                border: '1px solid #bde7c9',
+                color: '#0a7a37',
+                borderRadius: '12px',
+                padding: '0.8rem 1rem',
+                fontWeight: 700,
+                boxShadow: '0 8px 24px rgba(17, 144, 87, 0.12)',
+                position: 'relative',
+                zIndex: 2,
+              }}
+            >
+              {authSuccess}
             </div>
           </div>
-          <div className="hero-card">
-            <div className="hero-card-top"><span>KHAMMAMCARE</span></div>
-            <div className="medical-art">🩺</div>
-            <div className="support-panel">
-              <div className="support-avatar"><img src={profilePhoto} alt="Shekar profile" /></div>
-              <div className="support-info">
-                <div className="support-heading">Need support for this website?</div>
-                <div className="support-name">Shekar.ch</div>
-                <div className="support-links">
-                  <a className="contact-number" href="tel:+916302403464">
-                    <span aria-hidden="true">☎</span>
-                    <span className="contact-detail"><small>Mobile</small><strong>+91 63024 03464</strong></span>
+        )}
+
+        <section className="section emergency-section" id="emergency">
+          <div className="container">
+            <div className="section-head">
+              <div>
+                <div className="eyebrow">EMERGENCY HELP</div>
+                <h2>Khammam emergency contacts</h2>
+                <p>
+                  Call first in an emergency. These public contacts are provided
+                  for quick access.
+                </p>
+              </div>
+            </div>
+
+            <div className="emergency-grid">
+              {emergencyFacilities.map((facility) => (
+                <article
+                  className="emergency-card"
+                  key={`${facility.type}-${facility.name}`}
+                >
+                  <span className="tag">{facility.type}</span>
+                  <h3>{facility.name}</h3>
+                  <p>{facility.address}</p>
+                  <a className="primary-btn" href={facility.action}>
+                    {facility.phone}
                   </a>
-                  <a className="contact-number" href="mailto:shekarchapala@gmail.com">
-                    <span aria-hidden="true">✉</span>
-                    <span className="contact-detail"><small>Email</small><strong>shekarchapala@gmail.com</strong></span>
-                  </a>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="hero" id="home">
+          <div className="container hero-grid">
+            <div>
+              <div className="eyebrow">KHAMMAM • TELANGANA</div>
+              <h1>
+                Find trusted <span>doctors</span> and hospitals in Khammam.
+              </h1>
+              <p>
+                Search publicly listed directory information, view hospital
+                locations and send an appointment request from one professional
+                React website.
+              </p>
+              <div className="hero-actions">
+                <a
+                  className="primary-btn"
+                  href="#appointment"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    runAfterLogin(() =>
+                      document
+                        .querySelector('#appointment')
+                        ?.scrollIntoView({ behavior: 'smooth' }),
+                    );
+                  }}
+                >
+                  Appointment
+                </a>
+                <a className="secondary-btn" href="#doctors">
+                  Find a Doctor →
+                </a>
+                <a className="secondary-btn" href="#hospitals">
+                  View Hospitals
+                </a>
+              </div>
+              <div className="stats">
+                <div>
+                  <b>119+</b>
+                  <small>GGH specialists listed online</small>
+                </div>
+                <div>
+                  <b>{hospitals.length}+</b>
+                  <small>local hospitals/directories</small>
+                </div>
+                <div>
+                  <b>24/7</b>
+                  <small>emergency information</small>
+                </div>
+              </div>
+            </div>
+
+            <div className="hero-card">
+              <div className="hero-card-top">
+                <span>KHAMMAMCARE</span>
+              </div>
+              <div className="medical-art">✚</div>
+              <div className="support-panel">
+                <div className="support-avatar">
+                  <img src={profilePhoto} alt="Shekar profile" />
+                </div>
+                <div className="support-info">
+                  <div className="support-heading">
+                    Need support for this website?
+                  </div>
+                  <div className="support-name">Shekar.ch</div>
+                  <div className="support-links">
+                    <a className="contact-number" href="tel:+916302403464">
+                      <span aria-hidden="true">☎</span>
+                      <span className="contact-detail">
+                        <small>Mobile</small>
+                        <strong>+91 63024 03464</strong>
+                      </span>
+                    </a>
+                    <a
+                      className="contact-number"
+                      href="mailto:shekarchapala@gmail.com"
+                    >
+                      <span aria-hidden="true">✉</span>
+                      <span className="contact-detail">
+                        <small>Email</small>
+                        <strong>shekarchapala@gmail.com</strong>
+                      </span>
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
-      <section className="search-wrap"><div className="container search-box"><div><label>Doctor / Hospital</label><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="e.g. cardiologist, Rakesh, Ankura" /></div><button className="primary-btn" onClick={() => { setShown(24); document.querySelector('#doctors')?.scrollIntoView({ behavior: 'smooth' }); }}>{t('search')}</button></div></section>
-      <section className="section" id="hospitals"><div className="container"><div className="section-head"><div><div className="eyebrow">LOCAL DIRECTORY</div><h2>Hospitals in Khammam</h2><p>Hospital names are carried over from the researched public directory sources used for this project.</p></div></div><div className="hospital-grid">{hospitals.filter(h => (!docArea || h[4] === docArea) && (!openNow || h[5])).map(h => { const count = doctors.filter(d => d[2] === h[0]).length; return <article className="hospital-card" key={h[0]}><img className="hospital-photo" src={hospitalPhotos[hospitals.indexOf(h) % hospitalPhotos.length]} alt={`${h[0]} hospital`} loading="lazy" /><div className="hospital-icon fallback-icon">🏥</div><span className="tag">{h[1]}</span><h3>{h[0]}</h3><p>📍 {h[2]}</p><p>{count} doctors currently listed in this directory.</p><div className="hospital-actions"><a className="map-btn" href={h[3] || maps(h[0])} target="_blank" rel="noreferrer">📍 Location</a><button className="book-btn" onClick={() => chooseHospital(h[0])}>Book</button></div></article>; })}</div></div></section>
-      <section className="section doctors-section" id="doctors"><div className="container"><div className="section-head center"><div><div className="eyebrow">DOCTOR DIRECTORY</div><h2>Doctors in Khammam</h2><p>Showing {visible.length} of {filtered.length} researched doctor records</p></div></div><div className="doctor-toolbar"><input value={query} onChange={e => { setQuery(e.target.value); setShown(24); }} placeholder="Search doctor name..." /><select value={docSpec} onChange={e => { setDocSpec(e.target.value); setShown(24); }}><option value="">All specialities</option>{specialities.map(s => <option key={s}>{s}</option>)}</select><select value={docHospital} onChange={e => { setDocHospital(e.target.value); setShown(24); }}><option value="">All hospitals</option>{hospitalNames.map(h => <option key={h}>{h}</option>)}</select><select value={docArea} onChange={e => { setDocArea(e.target.value); setShown(24); }}><option value="">All areas</option>{areaNames.map(area => <option key={area}>{area}</option>)}</select><label className="filter-check"><input type="checkbox" checked={openNow} onChange={e => setOpenNow(e.target.checked)} /> Open now</label></div><div className="doctor-grid">{visible.map(d => { const doctorRating = doctorRatings[d[0]]; return <article className="doctor-card" key={d.join('|')}><div className="avatar-wrap"><img className="doctor-photo" src={doctorPhotos[doctors.indexOf(d) % doctorPhotos.length]} alt={`${d[0]} profile`} loading="lazy" /><div className="avatar fallback-avatar">{initials(d[0])}</div></div><h3>{d[0]}</h3><div className="speciality">{d[1]}</div><div className="hospital">🏥 {d[2]}</div>{doctorRating ? <div className="doctor-rating">★ {(doctorRating.total / doctorRating.count).toFixed(1)} ({doctorRating.count})</div> : <div className="doctor-rating">No ratings yet</div>}<div className="verified">✓ Publicly listed</div><button onClick={() => chooseDoctor(d[0], d[2])}>{t('book')}</button></article>; })}</div>{shown < filtered.length && <button className="load-more" onClick={() => setShown(x => x + 24)}>Load more doctors</button>}</div></section>
-      <section className="section appointment-section" id="appointment"><div className="container appointment-grid"><div className="appointment-info"><div className="eyebrow">APPOINTMENT REQUEST</div><h2>Book a consultation with your selected doctor.</h2><p>Choose your hospital, doctor and visit time. Demo bookings are saved only in this browser.</p><div className="info-list"><div>✓ Select hospital and doctor</div><div>✓ Choose date and time</div><div>✓ Review demo payment options</div><div>✓ Appointment saved in this browser</div></div></div><form className="form-card" onSubmit={submit}><div className="form-row"><div><label>Patient name</label><input value={form.name} onChange={e => update('name', e.target.value)} required /></div><div><label>Phone</label><input value={form.phone} onChange={e => update('phone', e.target.value.replace(/\D/g, '').slice(0, 10))} pattern="[0-9]{10}" required /></div></div><div className="form-row"><div><label>Patient age</label><input type="number" min="1" max="120" value={form.age} onChange={e => update('age', e.target.value)} placeholder="e.g. 32" required /></div><div><label>Hospital</label><select value={form.hospital} onChange={e => { const hospital = e.target.value; update('hospital', hospital); if (form.doctor && !doctors.some(d => d[2] === hospital && d[0] === form.doctor)) update('doctor', ''); }} required><option value="">Select hospital</option>{hospitals.map(h => <option key={h[0]}>{h[0]}</option>)}</select></div></div><div className="form-row"><div><label>{t('selectDoctor')}</label><select value={form.doctor} onChange={e => update('doctor', e.target.value)} required><option value="">{t('selectDoctor')}</option>{availableDoctors.map(d => <option key={d[0]} value={d[0]}>{d[0]} · {d[1]}</option>)}</select></div><div><label>Date</label><input type="date" min={new Date().toISOString().split('T')[0]} value={form.date} onChange={e => update('date', e.target.value)} required /></div></div><div><label>{t('timeSlot')}</label><select value={form.time} onChange={e => update('time', e.target.value)} required><option value="">{t('selectTime')}</option>{timeSlots.map(slot => <option key={slot} value={slot} disabled={reservedSlots.includes(slot)}>{slot}{reservedSlots.includes(slot) ? ' · Booked' : ''}</option>)}</select>{reservedSlots.length > 0 && <small>{reservedSlots.length} slot(s) are already booked for this doctor on the selected date.</small>}</div><div><label>Reason / symptoms</label><textarea rows="3" value={form.reason} onChange={e => update('reason', e.target.value)} placeholder="Optional" /></div><button className="primary-btn full" type="submit">Continue to demo payment →</button></form></div></section>
-      <section className="section about" id="direct-book"><div className="container"><div className="about-card"><div><div className="eyebrow">NO CONTACTS? NO PROBLEM</div><h2>Don’t know anyone directly?</h2><p>You can request an appointment through KhammamCare without a personal referral. Choose a hospital, select a doctor and time, then submit your request online.</p></div><div className="source-note"><h3>Book in 3 steps</h3><div className="booking-steps"><div className="booking-step"><Building2 aria-hidden="true" /><span>Choose a hospital</span></div><div className="booking-step"><Stethoscope aria-hidden="true" /><span>Select a doctor and visit time</span></div><div className="booking-step"><CalendarCheck aria-hidden="true" /><span>Review and submit your request</span></div></div><a href="#appointment" className="primary-btn">Book appointment</a></div></div></div></section>
-      <section className="section" id="about"><div className="container"><div className="about-card"><div><div className="eyebrow">ABOUT THIS WEBSITE</div><h2>A healthcare website for Khammam.</h2><p>KhammamCare lets people explore listed doctors and hospitals, search by speciality, view locations and save demo appointment requests in this browser. Checkout is a demo only; no real payment is processed.</p></div><div className="tech-list"><span>React</span><span>Vite</span><span>JavaScript</span><span>Local demo storage</span><span>Responsive CSS</span><span>Google Maps links</span></div></div></div></section>
-    </main>
-    <footer><div className="container">© 2026 KhammamCare • React demo project</div></footer>
+        </section>
 
-    {payment && <Modal onClose={() => setPayment(false)}><button className="modal-close" onClick={() => setPayment(false)}>×</button><div className="eyebrow">SECURE CHECKOUT • DEMO</div><h2>Choose payment mode</h2><div className="pay-options">{[{ name: 'UPI', Icon: Smartphone }, { name: 'Card', Icon: CreditCard }, { name: 'Net Banking', Icon: Landmark }].map(({ name, Icon }) => <button key={name} type="button" className={paymentMode === name ? 'active' : ''} aria-pressed={paymentMode === name} onClick={() => { setPaymentMode(name); setPaymentInput(''); }}><Icon aria-hidden="true" /><span>{name}</span></button>)}</div><div className="demo-pay"><p>Appointment: <b>{form.doctor}</b></p><p>Hospital: {form.hospital}</p><p>Patient: {form.name}</p><p>Amount: <b>₹{APPOINTMENT_FEE} (demo)</b></p><small>No real payment will be charged.</small></div>{paymentMode === 'UPI' && <input className="payment-input" placeholder="Enter UPI ID (demo)" value={paymentInput} onChange={e => setPaymentInput(e.target.value)} />}{paymentMode === 'Card' && <div className="payment-fields"><input placeholder="Card number (demo)" inputMode="numeric" value={paymentInput} onChange={e => setPaymentInput(e.target.value.replace(/\D/g,'').slice(0,16))} /><div className="form-row"><input placeholder="MM/YY" /><input placeholder="CVV" type="password" inputMode="numeric" maxLength="3" /></div></div>}{paymentMode === 'Net Banking' && <select className="payment-input" value={paymentInput} onChange={e => setPaymentInput(e.target.value)}><option value="">Select bank (demo)</option><option>State Bank of India</option><option>HDFC Bank</option><option>ICICI Bank</option><option>Axis Bank</option></select>}<button className="primary-btn full" onClick={finish} disabled={saving}>{saving ? 'Saving appointment...' : `Pay ₹${APPOINTMENT_FEE} with ${paymentMode} (Demo)`}</button></Modal>}
-    {success && <Modal onClose={() => setSuccess(null)}><button className="modal-close" onClick={() => setSuccess(null)}>×</button><div className="receipt success"><div className="receipt-header"><div><div className="eyebrow">APPOINTMENT CONFIRMED</div><h2>Payment receipt</h2></div><div className="success-icon">✓</div></div><div className="receipt-token"><small>APPOINTMENT TOKEN</small><strong>{success.token}</strong></div><div className="receipt-details"><div><span>Patient</span><b>{success.name}</b><small>Age {success.age} · {success.phone}</small></div><div><span>Doctor</span><b>{success.doctor}</b></div><div><span>Hospital</span><b>{success.hospital}</b></div><div><span>Appointment</span><b>{success.date} at {success.time}</b></div></div><div className="receipt-total"><span>Total paid · {success.payment}</span><b>₹{success.amount}.00</b></div><p className="receipt-note">Keep this token for your hospital visit. This is a demo payment receipt.</p><div className="receipt-actions"><button className="secondary-btn" onClick={() => setSuccess(null)}>Close</button><button className="primary-btn" onClick={() => downloadReceipt(success)}>Download receipt</button></div></div></Modal>}
-  </>;
+        <section className="search-wrap">
+          <div className="container search-box">
+            <div>
+              <label>Doctor / Hospital</label>
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setShown(24);
+                }}
+                placeholder="e.g. cardiologist, Rakesh, Ankura"
+              />
+            </div>
+            <button
+              className="primary-btn"
+              onClick={() => {
+                setShown(24);
+                document
+                  .querySelector('#doctors')
+                  ?.scrollIntoView({ behavior: 'smooth' });
+              }}
+            >
+              {t('search')}
+            </button>
+          </div>
+        </section>
+
+        <section className="section" id="hospitals">
+          <div className="container">
+            <div className="section-head">
+              <div>
+                <div className="eyebrow">LOCAL DIRECTORY</div>
+                <h2>Hospitals in Khammam</h2>
+                <p>
+                  Hospital names are carried over from the researched public
+                  directory sources used for this project.
+                </p>
+              </div>
+            </div>
+
+            <div className="hospital-grid">
+              {hospitals
+                .filter((h) => (!docArea || h[4] === docArea) && (!openNow || h[5]))
+                .map((h) => {
+                  const count = doctors.filter((d) => d[2] === h[0]).length;
+
+                  return (
+                    <article className="hospital-card" key={h[0]}>
+                      <img
+                        className="hospital-photo"
+                        src={
+                          hospitalPhotos[
+                            hospitals.indexOf(h) % hospitalPhotos.length
+                          ]
+                        }
+                        alt={`${h[0]} hospital`}
+                        loading="lazy"
+                      />
+                      <div className="hospital-icon fallback-icon">✚</div>
+                      <span className="tag">{h[1]}</span>
+                      <h3>{h[0]}</h3>
+                      <p>📍 {h[2]}</p>
+                      <p>{count} doctors currently listed in this directory.</p>
+                      <div className="hospital-actions">
+                        <a
+                          className="map-btn"
+                          href={h[3] || maps(h[0])}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          📍 Location
+                        </a>
+                        <button
+                          className="book-btn"
+                          onClick={() => chooseHospital(h[0])}
+                        >
+                          Book
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+            </div>
+          </div>
+        </section>
+
+        <section className="section doctors-section" id="doctors">
+          <div className="container">
+            <div className="section-head center">
+              <div>
+                <div className="eyebrow">DOCTOR DIRECTORY</div>
+                <h2>Doctors in Khammam</h2>
+                <p>
+                  Showing {visible.length} of {filtered.length} researched doctor
+                  records
+                </p>
+              </div>
+            </div>
+
+            <div className="doctor-toolbar">
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setShown(24);
+                }}
+                placeholder="Search doctor name..."
+              />
+              <select
+                value={docSpec}
+                onChange={(e) => {
+                  setDocSpec(e.target.value);
+                  setShown(24);
+                }}
+              >
+                <option value="">All specialities</option>
+                {specialities.map((speciality) => (
+                  <option key={speciality}>{speciality}</option>
+                ))}
+              </select>
+              <select
+                value={docHospital}
+                onChange={(e) => {
+                  setDocHospital(e.target.value);
+                  setShown(24);
+                }}
+              >
+                <option value="">All hospitals</option>
+                {hospitalNames.map((hospital) => (
+                  <option key={hospital}>{hospital}</option>
+                ))}
+              </select>
+              <select
+                value={docArea}
+                onChange={(e) => {
+                  setDocArea(e.target.value);
+                  setShown(24);
+                }}
+              >
+                <option value="">All areas</option>
+                {areaNames.map((area) => (
+                  <option key={area}>{area}</option>
+                ))}
+              </select>
+              <label className="filter-check">
+                <input
+                  type="checkbox"
+                  checked={openNow}
+                  onChange={(e) => setOpenNow(e.target.checked)}
+                />{' '}
+                Open now
+              </label>
+            </div>
+
+            <div className="doctor-grid">
+              {visible.map((doctor) => {
+                const doctorRating = doctorRatings[doctor[0]];
+
+                return (
+                  <article className="doctor-card" key={doctor.join('|')}>
+                    <div className="avatar-wrap">
+                      <img
+                        className="doctor-photo"
+                        src={
+                          doctorPhotos[
+                            doctors.indexOf(doctor) % doctorPhotos.length
+                          ]
+                        }
+                        alt={`${doctor[0]} profile`}
+                        loading="lazy"
+                      />
+                      <div className="avatar fallback-avatar">
+                        {initials(doctor[0])}
+                      </div>
+                    </div>
+                    <h3>{doctor[0]}</h3>
+                    <div className="speciality">{doctor[1]}</div>
+                    <div className="hospital">🏥 {doctor[2]}</div>
+                    {doctorRating ? (
+                      <div className="doctor-rating">
+                        ★{' '}
+                        {(doctorRating.total / doctorRating.count).toFixed(1)} (
+                        {doctorRating.count})
+                      </div>
+                    ) : (
+                      <div className="doctor-rating">No ratings yet</div>
+                    )}
+                    <div className="verified">✓ Publicly listed</div>
+                    <button onClick={() => chooseDoctor(doctor[0], doctor[2])}>
+                      {t('book')}
+                    </button>
+                  </article>
+                );
+              })}
+            </div>
+
+            {shown < filtered.length && (
+              <button
+                className="load-more"
+                onClick={() => setShown((value) => value + 24)}
+              >
+                Load more doctors
+              </button>
+            )}
+          </div>
+        </section>
+
+        <section className="section appointment-section" id="appointment">
+          <div className="container appointment-grid">
+            <div className="appointment-info">
+              <div className="eyebrow">APPOINTMENT REQUEST</div>
+              <h2>Book a consultation with your selected doctor.</h2>
+              <p>
+                This version uses Firebase Authentication and Firestore. After
+                the demo payment step, the appointment is saved to the{' '}
+                <b>appointments</b> collection.
+              </p>
+              <div className="info-list">
+                <div>✓ Login/Register with Firebase</div>
+                <div>✓ Phone OTP verification</div>
+                <div>✓ Select hospital and doctor</div>
+                <div>✓ Choose date and time</div>
+                <div>✓ Demo payment step</div>
+                <div>✓ Appointment saved in Firestore</div>
+              </div>
+            </div>
+
+            <form className="form-card" onSubmit={submit}>
+              <div className="form-row">
+                <div>
+                  <label>Patient name</label>
+                  <input
+                    value={form.name}
+                    onChange={(e) => update('name', e.target.value)}
+                    required
+                  />
+                </div>
+                <div>
+                  <label>Phone</label>
+                  <input
+                    value={form.phone}
+                    onChange={(e) =>
+                      update(
+                        'phone',
+                        e.target.value.replace(/\D/g, '').slice(0, 10),
+                      )
+                    }
+                    pattern="[0-9]{10}"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div>
+                  <label>Patient age</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={form.age}
+                    onChange={(e) => update('age', e.target.value)}
+                    placeholder="e.g. 32"
+                    required
+                  />
+                </div>
+                <div>
+                  <label>Hospital</label>
+                  <select
+                    value={form.hospital}
+                    onChange={(e) => {
+                      const hospital = e.target.value;
+                      update('hospital', hospital);
+
+                      if (
+                        form.doctor &&
+                        !doctors.some(
+                          (doctor) =>
+                            doctor[2] === hospital && doctor[0] === form.doctor,
+                        )
+                      ) {
+                        update('doctor', '');
+                      }
+                    }}
+                    required
+                  >
+                    <option value="">Select hospital</option>
+                    {hospitals.map((hospital) => (
+                      <option key={hospital[0]} value={hospital[0]}>
+                        {hospital[0]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div>
+                  <label>{t('selectDoctor')}</label>
+                  <select
+                    value={form.doctor}
+                    onChange={(e) => update('doctor', e.target.value)}
+                    required
+                  >
+                    <option value="">{t('selectDoctor')}</option>
+                    {availableDoctors.map((doctor) => (
+                      <option key={doctor[0]} value={doctor[0]}>
+                        {doctor[0]} · {doctor[1]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>Date</label>
+                  <input
+                    type="date"
+                    min={getLocalDateValue()}
+                    value={form.date || ''}
+                    onChange={(e) => {
+                      const nextDate = e.target.value;
+                      update('date', /^\d{4}-\d{2}-\d{2}$/.test(nextDate) ? nextDate : '');
+                    }}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label>{t('timeSlot')}</label>
+                <select
+                  value={form.time}
+                  onChange={(e) => update('time', e.target.value)}
+                  required
+                >
+                  <option value="">{t('selectTime')}</option>
+                  {timeSlots.map((slot) => (
+                    <option
+                      key={slot}
+                      value={slot}
+                      disabled={reservedSlots.includes(slot)}
+                    >
+                      {slot}
+                      {reservedSlots.includes(slot) ? ' · Booked' : ''}
+                    </option>
+                  ))}
+                </select>
+                {reservedSlots.length > 0 && (
+                  <small>
+                    {reservedSlots.length} slot(s) are already booked for this
+                    doctor on the selected date.
+                  </small>
+                )}
+              </div>
+
+              <div>
+                <label>Reason / symptoms</label>
+                <textarea
+                  rows="3"
+                  value={form.reason}
+                  onChange={(e) => update('reason', e.target.value)}
+                  placeholder="Optional"
+                />
+              </div>
+
+              {authError && (
+                <p className="login-error" role="alert">
+                  {authError}
+                </p>
+              )}
+
+              <button className="primary-btn full" type="submit">
+                {user ? 'Continue to payment →' : 'Login to continue →'}
+              </button>
+            </form>
+          </div>
+        </section>
+
+        <section className="section about" id="direct-book">
+          <div className="container">
+            <div className="about-card">
+              <div>
+                <div className="eyebrow">NO CONTACTS? NO PROBLEM</div>
+                <h2>Don’t know anyone directly?</h2>
+                <p>
+                  You can request an appointment through KhammamCare without a
+                  personal referral. Choose a hospital, select a doctor and
+                  time, then submit your request online.
+                </p>
+              </div>
+              <div className="source-note">
+                <h3>Book in 3 steps</h3>
+                <div className="booking-steps">
+                  <div className="booking-step">
+                    <Building2 aria-hidden="true" />
+                    <span>Choose a hospital</span>
+                  </div>
+                  <div className="booking-step">
+                    <Stethoscope aria-hidden="true" />
+                    <span>Select a doctor and visit time</span>
+                  </div>
+                  <div className="booking-step">
+                    <CalendarCheck aria-hidden="true" />
+                    <span>Review and submit your request</span>
+                  </div>
+                </div>
+                <a
+                  href="#appointment"
+                  className="primary-btn"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    runAfterLogin(() =>
+                      document
+                        .querySelector('#appointment')
+                        ?.scrollIntoView({ behavior: 'smooth' }),
+                    );
+                  }}
+                >
+                  Book appointment
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="section" id="about">
+          <div className="container">
+            <div className="about-card">
+              <div>
+                <div className="eyebrow">ABOUT THIS WEBSITE</div>
+                <h2>A healthcare website for Khammam.</h2>
+                <p>
+                  KhammamCare is a website where people can explore listed
+                  doctors and hospitals in Khammam, search by speciality, open
+                  hospital locations in Google Maps, and send appointment
+                  requests. It is built with React and Vite, uses Firebase
+                  Authentication for accounts, and stores appointments in Cloud
+                  Firestore. Checkout is a demo only; no real payment is
+                  processed.
+                </p>
+              </div>
+              <div className="tech-list">
+                <span>React</span>
+                <span>Vite</span>
+                <span>JavaScript</span>
+                <span>Firebase Authentication</span>
+                <span>Phone OTP</span>
+                <span>Cloud Firestore</span>
+                <span>Responsive CSS</span>
+                <span>Google Maps links</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer>
+        <div className="container">
+          © 2026 KhammamCare • React + Firebase student project
+        </div>
+      </footer>
+
+      {/* LOGIN / REGISTER / PHONE OTP MODAL */}
+      {login && (
+        <Modal className="login-modal" onClose={closeLogin}>
+          <button
+            type="button"
+            className="modal-close"
+            aria-label="Close login"
+            onClick={closeLogin}
+          >
+            ×
+          </button>
+
+          {/* Firebase renders invisible reCAPTCHA here */}
+          <div id="phone-recaptcha" />
+
+          <div className="login-mark">
+            <LogIn aria-hidden="true" />
+          </div>
+
+          <div className="eyebrow">KHAMMAMCARE ACCOUNT</div>
+
+          <h2>
+            {authMethod === 'phone'
+              ? 'Login with OTP'
+              : authMode === 'login'
+                ? 'Welcome back'
+                : 'Create account'}
+          </h2>
+
+          <p className="login-intro">
+            {authMethod === 'phone'
+              ? 'Enter your mobile number to receive a one-time password.'
+              : authMode === 'login'
+                ? 'Sign in to continue with your appointment.'
+                : 'Create an account to continue with your appointment.'}
+          </p>
+
+          {authMethod === 'phone' ? (
+            <form
+              className="login-form"
+              onSubmit={otpSent ? verifyPhoneOtp : handleAuth}
+            >
+              <label htmlFor="auth-username-phone">Username</label>
+              <input
+                id="auth-username-phone"
+                placeholder="Your name"
+                type="text"
+                autoComplete="nickname"
+                value={authUsername}
+                onChange={(e) => setAuthUsername(e.target.value)}
+                minLength={2}
+                maxLength={40}
+                required
+              />
+
+              <label htmlFor="auth-phone">Mobile number</label>
+              <input
+                id="auth-phone"
+                placeholder="e.g. 9876543210"
+                type="tel"
+                inputMode="numeric"
+                autoComplete="tel"
+                maxLength={10}
+                value={authPhone}
+                onChange={(e) =>
+                  setAuthPhone(
+                    e.target.value.replace(/\D/g, '').slice(0, 10),
+                  )
+                }
+                required
+              />
+
+              {otpSent && (
+                <>
+                  <label htmlFor="auth-otp">OTP</label>
+                  <input
+                    id="auth-otp"
+                    placeholder="Enter 6-digit OTP"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={authOtp}
+                    onChange={(e) =>
+                      setAuthOtp(
+                        e.target.value.replace(/\D/g, '').slice(0, 6),
+                      )
+                    }
+                    required
+                  />
+                </>
+              )}
+
+              {authError && (
+                <p className="login-error" role="alert">
+                  {authError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                className="primary-btn full"
+                disabled={authLoading}
+              >
+                {authLoading
+                  ? otpSent
+                    ? 'Verifying...'
+                    : 'Sending OTP...'
+                  : otpSent
+                    ? 'Verify OTP'
+                    : 'Send OTP'}
+              </button>
+
+              {otpSent && (
+                <button
+                  type="button"
+                  className="card-link"
+                  disabled={authLoading}
+                  onClick={() => {
+                    setAuthOtp('');
+                    setOtpSent(false);
+                    setPhoneConfirmation(null);
+                    setAuthError('');
+                    clearRecaptcha();
+                  }}
+                >
+                  Change number / Resend OTP
+                </button>
+              )}
+
+              <div className="auth-method-switch">
+                <button
+                  type="button"
+                  className="card-link"
+                  onClick={() => {
+                    setAuthMethod('email');
+                    setAuthError('');
+                    resetPhoneAuth();
+                  }}
+                >
+                  Use email login
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form className="login-form" onSubmit={handleAuth}>
+              {authMode === 'register' && (
+                <>
+                  <label htmlFor="auth-username">Username</label>
+                  <input
+                    id="auth-username"
+                    placeholder="Your name"
+                    type="text"
+                    autoComplete="nickname"
+                    value={authUsername}
+                    onChange={(e) => setAuthUsername(e.target.value)}
+                    minLength={2}
+                    maxLength={40}
+                    required
+                  />
+                </>
+              )}
+
+              <label htmlFor="auth-email">Email address</label>
+              <input
+                id="auth-email"
+                placeholder="you@example.com"
+                type="email"
+                autoComplete="email"
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                required
+              />
+
+              <label htmlFor="auth-password">Password</label>
+              <input
+                id="auth-password"
+                placeholder="At least 6 characters"
+                type="password"
+                autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                minLength={6}
+                required
+              />
+
+              {authError && (
+                <p className="login-error" role="alert">
+                  {authError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                className="primary-btn full"
+                disabled={authLoading}
+              >
+                {authLoading
+                  ? 'Please wait...'
+                  : authMode === 'login'
+                    ? 'Login'
+                    : 'Create account'}
+              </button>
+
+              {authMode === 'login' && (
+                <button
+                  type="button"
+                  className="card-link forgot-link"
+                  onClick={resetPassword}
+                  disabled={authLoading}
+                >
+                  Forgot password?
+                </button>
+              )}
+
+              <div className="auth-method-switch">
+                <button
+                  type="button"
+                  className="card-link"
+                  onClick={() => {
+                    setAuthMethod('phone');
+                    setAuthError('');
+                    resetPhoneAuth();
+                  }}
+                >
+                  Use phone OTP
+                </button>
+              </div>
+            </form>
+          )}
+
+          <p className="login-switch">
+            {authMethod === 'phone'
+              ? 'Need email login?'
+              : authMode === 'login'
+                ? 'New patient?'
+                : 'Already have an account?'}{' '}
+            <button
+              type="button"
+              className="card-link"
+              onClick={() => {
+                if (authMethod === 'phone') {
+                  setAuthMethod('email');
+                  setAuthError('');
+                  resetPhoneAuth();
+                  return;
+                }
+
+                setAuthMode(authMode === 'login' ? 'register' : 'login');
+                setAuthError('');
+              }}
+            >
+              {authMethod === 'phone'
+                ? 'Switch to email'
+                : authMode === 'login'
+                  ? 'Create account'
+                  : 'Login'}
+            </button>
+          </p>
+        </Modal>
+      )}
+
+      {/* SUCCESS / RECEIPT MODAL */}
+      {success && (
+        <Modal onClose={() => setSuccess(null)}>
+          <button className="modal-close" onClick={() => setSuccess(null)}>
+            ×
+          </button>
+          <div className="receipt success">
+            <div className="receipt-header">
+              <div>
+                <div className="eyebrow">APPOINTMENT CONFIRMED</div>
+                <h2>Payment receipt</h2>
+              </div>
+              <div className="success-icon">✓</div>
+            </div>
+
+            <div className="receipt-token">
+              <small>APPOINTMENT TOKEN</small>
+              <strong>{success.token}</strong>
+            </div>
+
+            <div className="receipt-details">
+              <div>
+                <span>Patient</span>
+                <b>{success.name}</b>
+                <small>
+                  Age {success.age} · {success.phone}
+                </small>
+              </div>
+              <div>
+                <span>Doctor</span>
+                <b>{success.doctor}</b>
+              </div>
+              <div>
+                <span>Hospital</span>
+                <b>{success.hospital}</b>
+              </div>
+              <div>
+                <span>Appointment</span>
+                <b>
+                  {success.date} at {success.time}
+                </b>
+              </div>
+            </div>
+
+            <div className="receipt-total">
+              <span>Total paid · {success.payment}</span>
+              <b>₹{success.amount}.00</b>
+            </div>
+
+            <p className="receipt-note">
+              Keep this token for your hospital visit. This is a demo payment
+              receipt.
+            </p>
+
+            <div className="receipt-actions">
+              <button
+                className="secondary-btn"
+                onClick={() => setSuccess(null)}
+              >
+                Close
+              </button>
+              <button
+                className="primary-btn"
+                onClick={() => downloadReceipt(success)}
+              >
+                Download receipt
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppContent />
+    </ErrorBoundary>
+  );
 }

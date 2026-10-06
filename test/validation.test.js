@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateAppointment } from '../src/validation.js';
+import { getVerificationStatus } from '../src/authState.js';
+import { getAppointmentStats } from '../src/adminStats.js';
+import { getLocalDateValue, validateAppointment } from '../src/validation.js';
 
 const validAppointment = {
     name: 'Shekar',
@@ -22,4 +24,48 @@ test('rejects invalid phone numbers', () => {
 
 test('rejects past appointment dates', () => {
     assert.equal(validateAppointment({...validAppointment, date: '2026-09-27' }, '2026-09-28'), 'Choose today or a future appointment date.');
+});
+
+test('formats dates using the local calendar instead of UTC', () => {
+    const localDate = new Date(2026, 9, 6, 23, 45, 0);
+    assert.equal(getLocalDateValue(localDate), '2026-10-06');
+});
+
+test('rejects partial date strings from the native browser datepicker', () => {
+    assert.equal(validateAppointment({...validAppointment, date: '2026' }, '2026-10-06'), 'Choose today or a future appointment date.');
+});
+
+test('shows verification complete only after a verified email user loads', () => {
+    assert.equal(
+        getVerificationStatus({ providerData: [{ providerId: 'password' }], emailVerified: true }),
+        'Verification complete.',
+    );
+    assert.equal(
+        getVerificationStatus({ providerData: [{ providerId: 'password' }], emailVerified: false }),
+        null,
+    );
+});
+
+test('firebase module exposes the firestore database client', async() => {
+    const firebase = await
+    import ('../src/firebase.js');
+    assert.ok(firebase.auth, 'auth should be initialized');
+    assert.ok(firebase.db, 'db should be initialized for Firestore access');
+});
+
+test('counts logged-in members and seen appointment status correctly', () => {
+    const stats = getAppointmentStats([
+        { id: 'a1', name: 'Asha', phone: '90000', userEmail: 'asha@example.com', status: 'Seen' },
+        { id: 'a2', name: 'Bharat', phone: '90001', userEmail: 'bharat@example.com', status: 'confirmed' },
+        { id: 'a3', name: 'Chandra', phone: '90002', userEmail: 'asha@example.com', status: 'Pending' },
+        { id: 'a4', name: 'Dinesh', phone: '90003', status: 'Completed' },
+        { id: 'a5', name: 'Esha', phone: '90004', status: 'Seen' },
+    ]);
+
+    assert.equal(stats.total, 5);
+    assert.equal(stats.loggedIn, 4);
+    assert.equal(stats.seen, 2);
+    assert.equal(stats.pending, 1);
+    assert.equal(stats.confirmed, 1);
+    assert.equal(stats.completed, 1);
 });

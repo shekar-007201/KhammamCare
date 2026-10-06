@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
+import { getLocalDateValue } from './validation.js';
 
 const timeSlots = ['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '12:00 PM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'];
 const storageKey = 'khammamcare-demo-appointments';
@@ -64,7 +65,7 @@ export default function PatientAppointments() {
           </article>;
         })}
       </div>
-      {reschedule && <div className="modal show" onClick={event => event.target === event.currentTarget && setReschedule(null)}><form className="modal-card login-form" onSubmit={requestReschedule}><button type="button" className="modal-close" onClick={() => setReschedule(null)}>×</button><div className="eyebrow">RESCHEDULE REQUEST</div><h2>Choose a new visit time</h2><label htmlFor="reschedule-date">Date</label><input id="reschedule-date" type="date" min={new Date().toISOString().split('T')[0]} value={reschedule.date} onChange={event => setReschedule(current => ({ ...current, date: event.target.value }))} required /><label htmlFor="reschedule-time">Time</label><select id="reschedule-time" value={reschedule.time} onChange={event => setReschedule(current => ({ ...current, time: event.target.value }))} required>{timeSlots.map(slot => <option key={slot}>{slot}</option>)}</select><button className="primary-btn full">Send reschedule request</button></form></div>}
+      {reschedule && <div className="modal show" onClick={event => event.target === event.currentTarget && setReschedule(null)}><form className="modal-card login-form" onSubmit={requestReschedule}><button type="button" className="modal-close" onClick={() => setReschedule(null)}>×</button><div className="eyebrow">RESCHEDULE REQUEST</div><h2>Choose a new visit time</h2><label htmlFor="reschedule-date">Date</label><input id="reschedule-date" type="date" min={getLocalDateValue()} value={reschedule.date} onChange={event => setReschedule(current => ({ ...current, date: event.target.value }))} required /><label htmlFor="reschedule-time">Time</label><select id="reschedule-time" value={reschedule.time} onChange={event => setReschedule(current => ({ ...current, time: event.target.value }))} required>{timeSlots.map(slot => <option key={slot}>{slot}</option>)}</select><button className="primary-btn full">Send reschedule request</button></form></div>}
     </main>
   );
 }

@@ -46,7 +46,7 @@ npm run preview
 The generated `dist` folder can be hosted on a static web host. Configure that host to serve `index.html` for application routes such as `/admin` and `/appointments`.
 
 ## Netlify
-The included `netlify.toml` sets the build command to `npm run build`, publishes `dist`, selects Node 22, and rewrites app routes to `index.html`. In Netlify, add the Firebase web app values under **Site configuration → Environment variables** because the local `.env` file is git-ignored:
+The included `netlify.toml` sets the build command to `npm run build`, publishes `dist`, selects Node 22, rewrites app routes to `index.html`, and provides the public Firebase web app configuration needed by the client build. The local `.env` file remains git-ignored. If you use another Firebase project, override these values under **Site configuration → Environment variables**:
 
 - `VITE_FIREBASE_API_KEY`
 - `VITE_FIREBASE_AUTH_DOMAIN`

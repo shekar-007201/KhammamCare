@@ -45,6 +45,19 @@ npm run preview
 
 The generated `dist` folder can be hosted on a static web host. Configure that host to serve `index.html` for application routes such as `/admin` and `/appointments`.
 
+## Netlify
+The included `netlify.toml` sets the build command to `npm run build`, publishes `dist`, selects Node 22, and rewrites app routes to `index.html`. In Netlify, add the Firebase web app values under **Site configuration → Environment variables** because the local `.env` file is git-ignored:
+
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
+- `VITE_FIREBASE_MEASUREMENT_ID` (optional)
+
+Trigger a new deploy after adding or changing these values.
+
 ## Mobile and PWA checks
 Serve the production build over HTTPS or localhost, then use browser DevTools → Application to verify the manifest and service worker. Check the navigation menu, filters, booking form, emergency call links, and `/appointments` at mobile widths.
 

@@ -1,0 +1,85 @@
+rules_version = '2';
+
+service cloud.firestore {
+  function isSignedIn() {
+    return request.auth != null;
+  }
+
+  function isAdmin() {
+    return isSignedIn() && request.auth.token.admin == true;
+  }
+
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'createdAt'])
+        && request.resource.data.keys().hasAll(['uid', 'name', 'email', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid;
+      allow read, update, delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'appointmentToken',
+          'amount',
+          'paymentMode',
+          'paymentStatus',
+          'paymentProvider',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid',
+          'appointmentToken',
+          'amount',
+          'paymentMode',
+          'paymentStatus',
+          'paymentProvider',
+          'createdAt'
+        ])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.appointmentToken is string
+        && request.resource.data.amount == 399
+        && request.resource.data.paymentMode in ['UPI', 'Card', 'Net Banking']
+        && request.resource.data.paymentStatus == 'demo-paid'
+        && request.resource.data.paymentProvider == 'demo'
+        && request.resource.data.createdAt == request.time;
+      allow read, update, delete: if false;
+    }
+
+    match /appointments/{appointmentId} {
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid;
+
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.uid == request.auth.uid);
+
+      allow update: if (
+          isAdmin()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in [
+            'Pending', 'confirmed', 'Approved', 'Seen', 'Rejected', 'Completed', 'canceled'
+          ]
+        ) || (
+          isSignedIn()
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'date', 'time', 'rating', 'status'
+          ])
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['status'])
+            || request.resource.data.status == 'canceled')
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['rating'])
+            || (request.resource.data.rating is int
+              && request.resource.data.rating >= 1
+              && request.resource.data.rating <= 5))
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['date'])
+            || request.resource.data.date is string)
+          && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['time'])
+            || request.resource.data.time is string)
+        );
+
+      allow delete: if false;
+    }
+  }
+}

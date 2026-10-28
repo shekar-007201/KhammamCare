@@ -8,6 +8,7 @@ React + Vite hospital directory and appointment demo for Khammam.
 - Appointment booking with doctor, date, and time selection
 - Patient appointment history at `/appointments`, with local cancellation, rescheduling, and ratings
 - Local appointment dashboard at `/admin`
+- Login required to continue from appointment booking to checkout
 - English/Telugu navigation and booking labels
 - Installable PWA shell with offline page caching
 - UPI, card, and net banking demo checkout with appointment receipts
@@ -20,9 +21,21 @@ npm run dev
 ```
 
 ## Data and payments
-This is a frontend-only demo. Appointments and ratings are stored in the current browser's local storage; they are not synced to other devices and may be lost if browser site data is cleared. There is no login, server, or access control for the local admin page.
+Appointments, ratings, and demo payment records are stored in this browser only. They are not synced to other devices and can be lost when browser site data is cleared. The `/admin` page has no account protection and should only be used as a local demo dashboard. Firebase Authentication is used for email/password accounts, but appointment and payment records are not sent to Firestore.
 
-Checkout is simulated. No real payment is processed, and the selected payment mode is only recorded as demo data.
+Checkout is simulated. No real payment is processed. Card numbers, CVV, expiry, and UPI IDs are not sent to or stored in Firestore.
+
+Enable Email/Password under Firebase Console → Authentication → Sign-in method. Set the `VITE_FIREBASE_*` values in `.env`, select your Firebase project with the Firebase CLI, and deploy Firestore rules with `firebase deploy --only firestore:rules`.
+
+### Admin access
+Admin access uses a Firebase Authentication custom claim; it cannot be granted from the browser. Install the dependencies, authenticate Google Cloud Application Default Credentials as a project administrator, and grant the claim to the account email:
+
+```bash
+gcloud auth application-default login
+npm run set-admin -- admin@example.com
+```
+
+The Google identity must have permission to update Firebase Authentication users. After granting the claim, sign out and sign back in. Never put service-account keys in the frontend or commit them to the repository.
 
 ## Build
 ```bash

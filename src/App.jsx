@@ -3,37 +3,33 @@ import {
   Building2,
   CalendarCheck,
   CreditCard,
-  Landmark,
   LogIn,
+  LogOut,
+  Landmark,
+  Pencil,
+  Save,
   Smartphone,
   Stethoscope,
+  X,
   UserRound,
 } from 'lucide-react';
-import { auth, db } from './firebase.js';
-import { useDirectory } from './useDirectory.js';
-import { getVerificationStatus } from './authState.js';
-import { getLocalDateValue, validateAppointment } from './validation.js';
-import profilePhoto from '../me.jpg';
 import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
-  RecaptchaVerifier,
-  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
-  signInWithPhoneNumber,
   signOut,
   updateProfile,
 } from 'firebase/auth';
+import { useDirectory } from './useDirectory.js';
+import { auth } from './firebase.js';
 import {
-  collection,
-  doc,
-  onSnapshot,
-  query as firestoreQuery,
-  runTransaction,
-  serverTimestamp,
-  where,
-} from 'firebase/firestore';
+  createAppointment,
+  createPaymentRecord,
+  subscribeToAllAppointments,
+} from './appointmentStorage.js';
+import { getLocalDateValue, validateAppointment } from './validation.js';
+import profilePhoto from '../me.jpg';
 
 const initials = (name) =>
   name
@@ -48,17 +44,6 @@ const maps = (name) =>
   `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     name + ' Khammam',
   )}`;
-
-const escapeHtml = (value) =>
-  String(value ?? '').replace(/[&<>'"]/g, (character) =>
-    ({
-      '&': '&amp;',
-      '<': '&lt;',
-      '>': '&gt;',
-      "'": '&#39;',
-      '"': '&quot;',
-    })[character],
-  );
 
 const APPOINTMENT_FEE = 399;
 
@@ -76,56 +61,138 @@ const translations = {
     timeSlot: 'Time slot',
     selectTime: 'Select time',
   },
-  te: {
-    home: 'హోమ్',
-    hospitals: 'హాస్పిటల్స్',
-    doctors: 'డాక్టర్లు',
-    appointment: 'అపాయింట్‌మెంట్',
-    about: 'మా గురించి',
-    myAppointments: 'నా అపాయింట్‌మెంట్స్',
-    search: 'వెతుకు',
-    book: 'డాక్టర్‌తో బుక్ చేయండి',
-    selectDoctor: 'డాక్టర్‌ను ఎంచుకోండి',
-    timeSlot: 'సమయాన్ని ఎంచుకోండి',
-    selectTime: 'సమయం ఎంచుకోండి',
-  },
 };
 
 const downloadReceipt = (receipt) => {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('2d');
+
+  if (!context) {
+    return;
+  }
+
+  canvas.width = 1200;
+  canvas.height = 1000;
+
+  const roundedRect = (x, y, width, height, radius) => {
+    context.beginPath();
+    context.roundRect(x, y, width, height, radius);
+  };
+
+  const drawField = (label, value, x, y, maxWidth) => {
+    context.fillStyle = '#71828a';
+    context.font = '700 17px Arial, sans-serif';
+    context.fillText(label.toUpperCase(), x, y);
+    context.fillStyle = '#233940';
+    context.font = '700 25px Arial, sans-serif';
+    const text = String(value || '-');
+    const words = text.split(/\s+/);
+    let line = '';
+    let lineY = y + 42;
+
+    for (const word of words) {
+      const nextLine = line ? `${line} ${word}` : word;
+      if (context.measureText(nextLine).width > maxWidth && line) {
+        context.fillText(line, x, lineY);
+        line = word;
+        lineY += 32;
+      } else {
+        line = nextLine;
+      }
+    }
+
+    context.fillText(line, x, lineY, maxWidth);
+  };
+
+  context.fillStyle = '#eaf3f3';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.shadowColor = 'rgba(24, 58, 65, 0.14)';
+  context.shadowBlur = 36;
+  context.shadowOffsetY = 14;
+  roundedRect(50, 45, 1100, 910, 28);
+  context.fillStyle = '#ffffff';
+  context.fill();
+  context.shadowColor = 'transparent';
+  context.shadowBlur = 0;
+  context.shadowOffsetY = 0;
+
+  roundedRect(50, 45, 1100, 235, 28);
+  context.fillStyle = '#087f8c';
+  context.fill();
+  context.fillRect(50, 200, 1100, 80);
+
+  context.fillStyle = '#ffffff';
+  context.font = '700 44px Arial, sans-serif';
+  context.fillText('KhammamCare', 100, 125);
+  context.fillStyle = '#d8f2ef';
+  context.font = '20px Arial, sans-serif';
+  context.fillText('Doctors & Hospitals · Khammam', 102, 163);
+  context.textAlign = 'right';
+  context.fillStyle = '#ffffff';
+  context.font = '700 20px Arial, sans-serif';
+  context.fillText('PAYMENT RECEIVED', 1095, 105);
+  context.font = '16px Arial, sans-serif';
+  context.fillText('APPOINTMENT CONFIRMED', 1095, 137);
+  context.textAlign = 'left';
+
+  roundedRect(100, 320, 1000, 145, 18);
+  context.fillStyle = '#effafa';
+  context.fill();
+  context.setLineDash([9, 7]);
+  context.strokeStyle = '#087f8c';
+  context.lineWidth = 2;
+  context.stroke();
+  context.setLineDash([]);
+  context.fillStyle = '#71828a';
+  context.font = '700 17px Arial, sans-serif';
+  context.fillText('APPOINTMENT TOKEN', 140, 370);
+  context.fillStyle = '#087f8c';
+  context.font = '700 39px Arial, sans-serif';
+  context.fillText(String(receipt.token || '-'), 140, 425);
+
+  drawField('Patient', receipt.name, 120, 530, 430);
+  context.fillStyle = '#71828a';
+  context.font = '18px Arial, sans-serif';
+  context.fillText(`Age ${receipt.age || '-'} · ${receipt.phone || '-'}`, 120, 610, 430);
+  drawField('Doctor', receipt.doctor, 650, 530, 430);
+  drawField('Hospital', receipt.hospital, 120, 675, 430);
+  drawField('Appointment', `${receipt.date || '-'} at ${receipt.time || '-'}`, 650, 675, 430);
+
+  context.beginPath();
+  context.moveTo(100, 770);
+  context.lineTo(1100, 770);
+  context.strokeStyle = '#e2ebeb';
+  context.lineWidth = 2;
+  context.stroke();
+  context.fillStyle = '#52666d';
+  context.font = '20px Arial, sans-serif';
+  context.fillText(`Total paid · ${receipt.payment || 'Demo'}`, 120, 830);
+  context.textAlign = 'right';
+  context.fillStyle = '#087f8c';
+  context.font = '700 34px Arial, sans-serif';
+  context.fillText(`₹${receipt.amount || 0}.00`, 1080, 835);
+  context.textAlign = 'left';
+  context.fillStyle = '#71828a';
+  context.font = '16px Arial, sans-serif';
+  context.fillText('Please keep this token for your hospital visit.', 120, 900);
+
   const bookedAt = new Date(receipt.bookedAt).toLocaleString('en-IN', {
     dateStyle: 'medium',
     timeStyle: 'short',
   });
+  context.textAlign = 'right';
+  context.fillText(`Issued ${bookedAt}`, 1080, 900);
+  context.textAlign = 'left';
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>KhammamCare Receipt ${escapeHtml(
-    receipt.token,
-  )}</title><style>
-*{box-sizing:border-box}body{margin:0;background:#eef7fc;color:#172033;font:15px Arial,sans-serif}.receipt{width:min(760px,calc(100% - 32px));margin:40px auto;background:#fff;border:1px solid #dceaf4;border-radius:18px;overflow:hidden;box-shadow:0 18px 50px #16466d18}.head{padding:28px 32px;background:#087fdb;color:#fff;display:flex;justify-content:space-between;gap:20px}.brand{font-size:25px;font-weight:800}.head small{display:block;margin-top:5px;opacity:.8}.status{text-align:right;font-size:12px;font-weight:700;letter-spacing:1px}.body{padding:30px 32px}.token{padding:16px 20px;margin-bottom:24px;background:#eaf7ff;border:1px dashed #087fdb;border-radius:12px;color:#087fdb}.token small{display:block;color:#52677c;font-size:11px;letter-spacing:1px}.token strong{display:block;margin-top:4px;font-size:28px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px;border-bottom:1px solid #e5edf5;padding-bottom:22px}.item label{display:block;color:#7b8492;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}.item strong{display:block;line-height:1.4}.payment{display:flex;justify-content:space-between;padding:20px 0;font-weight:700}.note{padding:14px;background:#f7fbff;border-radius:10px;color:#617084;font-size:12px}.foot{padding:18px 32px;border-top:1px solid #e5edf5;color:#7b8492;font-size:12px}@media(max-width:560px){.head,.body,.foot{padding:22px}.head,.payment{display:block}.status{text-align:left;margin-top:12px}.grid{grid-template-columns:1fr}.payment strong{display:block;margin-top:6px}}@media print{body{background:#fff}.receipt{width:100%;margin:0;border:0;box-shadow:none}.head{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-</style></head><body><main class="receipt"><header class="head"><div><div class="brand">KhammamCare</div><small>Doctors &amp; Hospitals</small></div><div class="status">PAYMENT RECEIPT<br>APPOINTMENT CONFIRMED</div></header><section class="body"><div class="token"><small>APPOINTMENT TOKEN</small><strong>${escapeHtml(
-    receipt.token,
-  )}</strong></div><div class="grid"><div class="item"><label>Patient</label><strong>${escapeHtml(
-    receipt.name,
-  )}</strong><span>Age: ${escapeHtml(receipt.age)} &bull; ${escapeHtml(
-    receipt.phone,
-  )}</span></div><div class="item"><label>Doctor</label><strong>${escapeHtml(
-    receipt.doctor,
-  )}</strong></div><div class="item"><label>Hospital</label><strong>${escapeHtml(
-    receipt.hospital,
-  )}</strong></div><div class="item"><label>Appointment</label><strong>${escapeHtml(
-    receipt.date,
-  )} at ${escapeHtml(receipt.time)}</strong></div></div><div class="payment"><span>Total paid (${escapeHtml(
-    receipt.payment,
-  )})</span><strong>₹${escapeHtml(receipt.amount)}.00</strong></div><div class="note">This is a demo payment receipt generated by KhammamCare. Please carry this token when contacting the hospital.</div></section><footer class="foot">Generated on ${escapeHtml(
-    bookedAt,
-  )} &bull; KhammamCare, Khammam Telangana</footer></main></body></html>`;
-
-  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `KhammamCare-${receipt.token}-receipt.html`;
-  link.click();
-  URL.revokeObjectURL(url);
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `KhammamCare-${receipt.token}-receipt.png`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
 };
 
 const hospitalPhotos = [
@@ -165,17 +232,6 @@ const doctorPhotos = [
   'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=500&q=80',
   'https://images.unsplash.com/photo-1622253692010-333f2da6031d?auto=format&fit=crop&w=500&q=80',
 ];
-
-function Modal({ children, onClose, className = '' }) {
-  return (
-    <div
-      className="modal show"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className={`modal-card ${className}`}>{children}</div>
-    </div>
-  );
-}
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -223,31 +279,29 @@ function AppContent() {
   const [openNow, setOpenNow] = useState(false);
   const [shown, setShown] = useState(24);
   const [menu, setMenu] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginMode, setLoginMode] = useState('sign-in');
+  const [loginName, setLoginName] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginNotice, setLoginNotice] = useState('');
+  const [authUser, setAuthUser] = useState(null);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileName, setProfileName] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [profileNotice, setProfileNotice] = useState('');
+  const [profileBusy, setProfileBusy] = useState(false);
   const [selectedHospital, setSelectedHospital] = useState('');
   const [selectedDoctor, setSelectedDoctor] = useState('');
 
-  const [login, setLogin] = useState(false);
-  const [authMode, setAuthMode] = useState('login');
-  const [authUsername, setAuthUsername] = useState('');
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [authPhone, setAuthPhone] = useState('');
-  const [authOtp, setAuthOtp] = useState('');
-  const [authMethod, setAuthMethod] = useState('email');
-  const [authError, setAuthError] = useState('');
-  const [authSuccess, setAuthSuccess] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
-  const [phoneConfirmation, setPhoneConfirmation] = useState(null);
-  const [otpSent, setOtpSent] = useState(false);
-
-  const [user, setUser] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [pendingAction, setPendingAction] = useState(null);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
-
   const [payment, setPayment] = useState(null);
+  const [checkoutPending, setCheckoutPending] = useState(false);
   const [paymentMode, setPaymentMode] = useState('UPI');
   const [paymentInput, setPaymentInput] = useState('');
+  const [paymentError, setPaymentError] = useState('');
   const [success, setSuccess] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -262,108 +316,237 @@ function AppContent() {
     reason: '',
   });
 
-  const [reservedSlots, setReservedSlots] = useState([]);
-  const [language, setLanguage] = useState('en');
-  const [doctorRatings, setDoctorRatings] = useState({});
+  const [appointments, setAppointments] = useState([]);
+  const [bookingError, setBookingError] = useState('');
 
-  const accountName =
-    user?.displayName?.trim() || user?.email?.split('@')[0] || 'Account';
+  const t = (key) => translations.en[key];
 
-  const t = (key) => translations[language][key] || translations.en[key];
+  useEffect(() => onAuthStateChanged(auth, setAuthUser), []);
 
-  const emailNeedsVerification =
-    user?.providerData.some((provider) => provider.providerId === 'password') &&
-    !user.emailVerified;
+  useEffect(() => subscribeToAllAppointments(setAppointments), []);
 
-  useEffect(() => {
-    return onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        try {
-          await currentUser.reload();
-        } catch (error) {
-          console.warn('Firebase user reload failed:', error);
-        }
+  const handleLoginSubmit = async (event) => {
+    event.preventDefault();
+    setLoginError('');
+    setLoginNotice('');
+    setAuthBusy(true);
+
+    try {
+      if (loginMode === 'create-account') {
+        const credential = await createUserWithEmailAndPassword(auth, loginEmail, loginPassword);
+        const name = loginName.trim();
+        await updateProfile(credential.user, { displayName: name });
+        setAuthUser({ ...credential.user, displayName: name });
+      } else {
+        await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
       }
-
-      const refreshedUser = auth.currentUser ?? currentUser;
-      setUser(refreshedUser);
-      setAuthReady(true);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!authSuccess) return undefined;
-
-    const timer = window.setTimeout(() => setAuthSuccess(''), 6000);
-    return () => window.clearTimeout(timer);
-  }, [authSuccess]);
-
-  useEffect(() => {
-    if (!authReady || !user) return;
-
-    const verificationMessage = getVerificationStatus(user);
-    if (verificationMessage) {
-      setAuthSuccess(verificationMessage);
+      setLoginOpen(false);
+      setLoginPassword('');
+      if (checkoutPending) {
+        setCheckoutPending(false);
+        setPayment(true);
+      }
+    } catch (error) {
+      console.error('Firebase login error:', error.code, error.message);
+      setLoginError(`${error.code}: ${error.message}`);
+    } finally {
+      setAuthBusy(false);
     }
-  }, [authReady, user]);
+  };
 
-  useEffect(() => {
-    return onSnapshot(
-      collection(db, 'ratings'),
-      (snapshot) => {
-        const totals = {};
-        snapshot.docs.forEach((item) => {
-          const data = item.data();
-          if (!data.doctor || !data.rating) return;
-          totals[data.doctor] ||= { total: 0, count: 0 };
-          totals[data.doctor].total += data.rating;
-          totals[data.doctor].count += 1;
-        });
-        setDoctorRatings(totals);
-      },
-      (error) => console.error('Rating load failed:', error),
-    );
-  }, []);
+  const handlePasswordReset = async () => {
+    const email = loginEmail.trim();
+    setLoginError('');
+    setLoginNotice('');
 
-  useEffect(() => {
-    if (!user || !form.doctor || !form.date) {
-      setReservedSlots([]);
-      return undefined;
-    }
-
-    const slotsQuery = firestoreQuery(
-      collection(db, 'slotReservations'),
-      where('doctor', '==', form.doctor),
-      where('date', '==', form.date),
-      where('status', '==', 'reserved'),
-    );
-
-    return onSnapshot(
-      slotsQuery,
-      (snapshot) => {
-        setReservedSlots(snapshot.docs.map((slot) => slot.data().time));
-      },
-      (error) => {
-        console.error(error);
-        setReservedSlots([]);
-      },
-    );
-  }, [user, form.doctor, form.date]);
-
-  useEffect(() => {
-    if (!authReady || login || authLoading || !pendingAction) return;
-
-    if (!user) {
-      setAuthError('');
-      setAuthMode('login');
-      setLogin(true);
+    if (!email) {
+      setLoginError('Enter your email address first.');
       return;
     }
 
-    const action = pendingAction;
-    setPendingAction(null);
-    action();
-  }, [authReady, login, authLoading, pendingAction, user]);
+    setAuthBusy(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setLoginNotice('Password reset email sent. Check your inbox.');
+    } catch (error) {
+      setLoginError(error.message || 'Could not send a reset email. Please try again.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleAuthButton = async () => {
+    if (!authUser) {
+      setLoginError('');
+      setLoginMode('sign-in');
+      setLoginOpen(true);
+      return;
+    }
+
+    setProfileName(authUser.displayName || '');
+    setProfileError('');
+    setProfileNotice('');
+    setProfileEditing(false);
+    setProfileOpen(true);
+  };
+
+  const handleProfileSave = async () => {
+    const name = profileName.trim();
+    if (!name) {
+      setProfileError('Enter your name to save your profile.');
+      return;
+    }
+
+    setProfileBusy(true);
+    setProfileError('');
+    setProfileNotice('');
+    try {
+      await updateProfile(auth.currentUser, { displayName: name });
+      setAuthUser({ ...auth.currentUser, displayName: name });
+      setProfileName(name);
+      setProfileEditing(false);
+      setProfileNotice('Profile name updated.');
+    } catch (error) {
+      setProfileError(error.message || 'Could not update your profile. Please try again.');
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const handleProfilePasswordReset = async () => {
+    if (!authUser?.email) return;
+    setProfileError('');
+    setProfileNotice('');
+    setProfileBusy(true);
+    try {
+      await sendPasswordResetEmail(auth, authUser.email);
+      setProfileNotice(`Password reset email sent to ${authUser.email}.`);
+    } catch (error) {
+      setProfileError(error.message || 'Could not send a reset email. Please try again.');
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const handleProfileSignOut = async () => {
+    setProfileBusy(true);
+    setProfileError('');
+    try {
+      await signOut(auth);
+      setProfileOpen(false);
+    } catch (error) {
+      setProfileError(error.message || 'Could not sign out. Please try again.');
+    } finally {
+      setProfileBusy(false);
+    }
+  };
+
+  const profileDialog = profileOpen && authUser && (
+    <div
+      className="modal show profile-modal"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) setProfileOpen(false);
+      }}
+    >
+      <section className="modal-card profile-card" role="dialog" aria-modal="true" aria-labelledby="profile-title">
+        <button
+          type="button"
+          className="modal-close"
+          aria-label="Close profile"
+          onClick={() => setProfileOpen(false)}
+        >
+          <X size={20} aria-hidden="true" />
+        </button>
+        <div className="profile-identity">
+          <div className="profile-avatar" aria-hidden="true"><UserRound size={28} /></div>
+          <div>
+            <div className="eyebrow">YOUR ACCOUNT</div>
+            <h2 id="profile-title">Profile</h2>
+          </div>
+        </div>
+        <label className="profile-field">
+          Name
+          <input
+            type="text"
+            autoComplete="name"
+            maxLength={60}
+            value={profileName}
+            readOnly={!profileEditing}
+            onChange={(event) => setProfileName(event.target.value)}
+          />
+        </label>
+        <label className="profile-field">
+          Email
+          <input type="email" value={authUser.email || ''} readOnly />
+        </label>
+        {profileError && <p className="booking-error" role="alert">{profileError}</p>}
+        {profileNotice && <p className="login-notice" role="status">{profileNotice}</p>}
+        <div className="profile-actions">
+          {profileEditing ? (
+            <>
+              <button
+                type="button"
+                className="secondary-btn"
+                onClick={() => {
+                  setProfileName(authUser.displayName || '');
+                  setProfileEditing(false);
+                  setProfileError('');
+                }}
+              >
+                Cancel
+              </button>
+              <button type="button" className="primary-btn" onClick={handleProfileSave} disabled={profileBusy}>
+                <Save size={16} aria-hidden="true" /> Save name
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={() => {
+                setProfileEditing(true);
+                setProfileError('');
+                setProfileNotice('');
+              }}
+            >
+              <Pencil size={16} aria-hidden="true" /> Edit name
+            </button>
+          )}
+          <button type="button" className="profile-link-button" onClick={handleProfilePasswordReset} disabled={profileBusy}>
+            Send password reset email
+          </button>
+          <button type="button" className="profile-signout-button" onClick={handleProfileSignOut} disabled={profileBusy}>
+            <LogOut size={16} aria-hidden="true" /> Sign out
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+
+  const reservedSlots = useMemo(
+    () => appointments
+      .filter(appointment =>
+        appointment.doctor === form.doctor &&
+        appointment.date === form.date &&
+        !['canceled', 'Rejected'].includes(appointment.status),
+      )
+      .map(appointment => appointment.time),
+    [appointments, form.doctor, form.date],
+  );
+
+  const doctorRatings = useMemo(() => {
+    const totals = {};
+
+    appointments.forEach(appointment => {
+      if (!appointment.doctor || !appointment.rating) return;
+      totals[appointment.doctor] ||= { total: 0, count: 0 };
+      totals[appointment.doctor].total += appointment.rating;
+      totals[appointment.doctor].count += 1;
+    });
+
+    return totals;
+  }, [appointments]);
 
   const specialities = useMemo(
     () => [...new Set(doctors.map((d) => d[1]))].sort(),
@@ -431,332 +614,21 @@ function AppContent() {
   const visible = filtered.slice(0, shown);
   const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
-  // ------------------------------------------------------------
-  // Firebase Phone OTP / reCAPTCHA
-  // ------------------------------------------------------------
-  const clearRecaptcha = () => {
-    if (typeof window === 'undefined') return;
-
-    const verifier = window.recaptchaVerifier;
-    if (verifier) {
-      try {
-        verifier.clear();
-      } catch (error) {
-        console.warn('reCAPTCHA cleanup warning:', error);
-      }
-    }
-
-    delete window.recaptchaVerifier;
+  const chooseHospital = (hospital) => {
+    setSelectedHospital(hospital);
+    update('hospital', hospital);
+    document
+      .querySelector('#appointment')
+      ?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  const getRecaptchaVerifier = () => {
-    if (typeof window === 'undefined') return null;
-
-    if (
-      window.recaptchaVerifier &&
-      typeof window.recaptchaVerifier.clear === 'function'
-    ) {
-      return window.recaptchaVerifier;
-    }
-
-    const verifier = new RecaptchaVerifier(auth, 'phone-recaptcha', {
-      size: 'invisible',
-      callback: () => {
-        console.log('Firebase reCAPTCHA verified');
-      },
-      'expired-callback': () => {
-        setAuthError('reCAPTCHA expired. Please try sending OTP again.');
-        clearRecaptcha();
-      },
-    });
-
-    window.recaptchaVerifier = verifier;
-    return verifier;
-  };
-
-  const resetPhoneAuth = () => {
-    setAuthPhone('');
-    setAuthOtp('');
-    setOtpSent(false);
-    setPhoneConfirmation(null);
-    clearRecaptcha();
-  };
-
-  const openLogin = () => {
-    setAuthError('');
-    setAuthMode('login');
-    setAuthMethod('email');
-    resetPhoneAuth();
-    setLogin(true);
-  };
-
-  const closeLogin = () => {
-    setLogin(false);
-    setPendingAction(null);
-    setAuthMode('login');
-    setAuthMethod('email');
-    resetPhoneAuth();
-  };
-
-  const runAfterLogin = (action) => {
-    if (authReady && user) {
-      action();
-      return;
-    }
-
-    setPendingAction(() => action);
-    if (authReady) openLogin();
-  };
-
-  const chooseHospital = (hospital) =>
-    runAfterLogin(() => {
-      setSelectedHospital(hospital);
-      update('hospital', hospital);
-      document
-        .querySelector('#appointment')
-        ?.scrollIntoView({ behavior: 'smooth' });
-    });
-
-  const chooseDoctor = (doctor, hospital) =>
-    runAfterLogin(() => {
-      setSelectedDoctor(doctor);
-      update('doctor', doctor);
-      update('hospital', hospital);
-      document
-        .querySelector('#appointment')
-        ?.scrollIntoView({ behavior: 'smooth' });
-    });
-
-  const handleAuth = async (event) => {
-    event.preventDefault();
-    setAuthError('');
-
-    // PHONE OTP LOGIN
-    if (authMethod === 'phone') {
-      const normalizedPhone = authPhone.replace(/\D/g, '');
-
-      if (!authUsername.trim()) {
-        setAuthError('Please enter your username.');
-        return;
-      }
-
-      if (normalizedPhone.length !== 10) {
-        setAuthError('Please enter a valid 10-digit Indian mobile number.');
-        return;
-      }
-
-      setAuthLoading(true);
-
-      try {
-        const phoneNumber = `+91${normalizedPhone}`;
-        const appVerifier = getRecaptchaVerifier();
-
-        if (!appVerifier) {
-          throw new Error('Firebase reCAPTCHA could not be initialized.');
-        }
-
-        const confirmationResult = await signInWithPhoneNumber(
-          auth,
-          phoneNumber,
-          appVerifier,
-        );
-
-        setPhoneConfirmation(confirmationResult);
-        setOtpSent(true);
-        setAuthSuccess('OTP sent successfully. Enter the 6-digit OTP.');
-        setAuthError('');
-      } catch (error) {
-        console.error('Firebase OTP send error:', error);
-
-        const messages = {
-          'auth/invalid-phone-number': 'Invalid mobile number.',
-          'auth/too-many-requests':
-            'Too many OTP requests. Please wait and try again later.',
-          'auth/quota-exceeded':
-            'Firebase SMS quota exceeded. Please try again later.',
-          'auth/captcha-check-failed':
-            'reCAPTCHA verification failed. Please try again.',
-          'auth/invalid-app-credential':
-            'Firebase app verification failed. Check Authorized Domains.',
-          'auth/operation-not-allowed':
-            'Phone authentication is not enabled in Firebase Console.',
-          'auth/network-request-failed':
-            'Network error. Check your internet connection.',
-        };
-
-        setAuthError(
-          messages[error.code] ||
-            error.message ||
-            'Unable to send OTP. Please try again.',
-        );
-
-        clearRecaptcha();
-      } finally {
-        setAuthLoading(false);
-      }
-
-      return;
-    }
-
-    // EMAIL LOGIN / REGISTER
-    if (authMode === 'register' && !authUsername.trim()) {
-      setAuthError('Please enter a username.');
-      return;
-    }
-
-    setAuthLoading(true);
-
-    try {
-      if (authMode === 'register') {
-        const credential = await createUserWithEmailAndPassword(
-          auth,
-          authEmail.trim(),
-          authPassword,
-        );
-
-        await updateProfile(credential.user, {
-          displayName: authUsername.trim(),
-        });
-
-        await sendEmailVerification(credential.user);
-        await signOut(auth);
-
-        setAuthError(
-          'Account created. Check your email and verify your address before logging in.',
-        );
-        setAuthSuccess('Verification email sent. Please verify your email.');
-        setAuthMode('login');
-        setAuthUsername('');
-        setAuthPassword('');
-        return;
-      }
-
-      const credential = await signInWithEmailAndPassword(
-        auth,
-        authEmail.trim(),
-        authPassword,
-      );
-
-      if (!credential.user.emailVerified) {
-        await signOut(auth);
-        setAuthError(
-          'Please verify your email before booking. Check your inbox for the verification link.',
-        );
-        return;
-      }
-
-      setAuthSuccess('Login successful.');
-      setLogin(false);
-      setAuthUsername('');
-      setAuthEmail('');
-      setAuthPassword('');
-      setAuthMode('login');
-      setAuthMethod('email');
-      resetPhoneAuth();
-    } catch (error) {
-      console.error('Firebase email auth error:', error);
-
-      const messages = {
-        'auth/email-already-in-use':
-          'This email is already registered. Please login.',
-        'auth/invalid-credential': 'Invalid email or password.',
-        'auth/weak-password': 'Password must be at least 6 characters.',
-        'auth/invalid-email': 'Please enter a valid email address.',
-        'auth/user-not-found': 'No account exists for this email address.',
-        'auth/too-many-requests':
-          'Too many attempts. Please wait a moment and try again.',
-      };
-
-      setAuthError(messages[error.code] || error.message || 'Authentication failed.');
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const resetPassword = async () => {
-    if (!authEmail.trim()) {
-      setAuthError(
-        'Enter your email address first, then choose Forgot password.',
-      );
-      return;
-    }
-
-    setAuthLoading(true);
-
-    try {
-      await sendPasswordResetEmail(auth, authEmail.trim());
-      setAuthError('Password reset email sent. Check your inbox.');
-    } catch (error) {
-      console.error(error);
-      setAuthError(
-        error.code === 'auth/user-not-found'
-          ? 'No account exists for this email address.'
-          : 'Unable to send the reset email. Please try again.',
-      );
-    } finally {
-      setAuthLoading(false);
-    }
-  };
-
-  const verifyPhoneOtp = async (event) => {
-    event.preventDefault();
-
-    if (!phoneConfirmation) {
-      setAuthError('Please request an OTP first.');
-      return;
-    }
-
-    const otp = authOtp.trim();
-
-    if (!/^\d{6}$/.test(otp)) {
-      setAuthError('Please enter the 6-digit OTP.');
-      return;
-    }
-
-    setAuthLoading(true);
-
-    try {
-      const confirmedUser = await phoneConfirmation.confirm(otp);
-
-      if (authUsername.trim()) {
-        await updateProfile(confirmedUser.user, {
-          displayName: authUsername.trim(),
-        });
-      }
-
-      setAuthSuccess('Login successful.');
-      setLogin(false);
-      setAuthMode('login');
-      setAuthMethod('email');
-      setAuthUsername('');
-      setAuthEmail('');
-      setAuthPassword('');
-      setAuthPhone('');
-      setAuthOtp('');
-      setOtpSent(false);
-      setPhoneConfirmation(null);
-      clearRecaptcha();
-    } catch (error) {
-      console.error('Firebase OTP verification error:', error);
-
-      const messages = {
-        'auth/invalid-verification-code':
-          'Incorrect OTP. Please enter the correct 6-digit code.',
-        'auth/code-expired': 'OTP expired. Please request a new OTP.',
-        'auth/too-many-requests':
-          'Too many attempts. Please try again later.',
-        'auth/network-request-failed':
-          'Network error. Check your internet connection.',
-      };
-
-      setAuthError(
-        messages[error.code] ||
-          error.message ||
-          'OTP verification failed. Please try again.',
-      );
-    } finally {
-      setAuthLoading(false);
-    }
+  const chooseDoctor = (doctor, hospital) => {
+    setSelectedDoctor(doctor);
+    update('doctor', doctor);
+    update('hospital', hospital);
+    document
+      .querySelector('#appointment')
+      ?.scrollIntoView({ behavior: 'smooth' });
   };
 
   const submit = (event) => {
@@ -765,19 +637,19 @@ function AppContent() {
     const validationError = validateAppointment(form);
 
     if (validationError) {
-      setAuthError(validationError);
+      setBookingError(validationError);
       return;
     }
 
-    if (emailNeedsVerification) {
-      setAuthError('Verify your email address before booking an appointment.');
-      return;
-    }
+    setBookingError('');
+    setPaymentError('');
 
-    setAuthError('');
-
-    if (!user) {
-      runAfterLogin(() => setPayment(true));
+    if (!authUser) {
+      setCheckoutPending(true);
+      setLoginMode('sign-in');
+      setLoginError('');
+      setLoginNotice('Sign in to continue to payment.');
+      setLoginOpen(true);
       return;
     }
 
@@ -785,76 +657,66 @@ function AppContent() {
   };
 
   const finish = async () => {
-    if (!user) {
+    setPaymentError('');
+
+    if (!authUser) {
       setPayment(false);
-      openLogin();
+      setCheckoutPending(true);
+      setLoginMode('sign-in');
+      setLoginNotice('Sign in to continue to payment.');
+      setLoginOpen(true);
       return;
     }
 
     setSaving(true);
 
     const token = 'KHM-' + Math.floor(1000 + Math.random() * 9000);
-    const slotId = [form.doctor, form.date, form.time]
-      .map((value) => encodeURIComponent(value))
-      .join('__');
 
     try {
-      const appointmentRef = doc(collection(db, 'appointments'));
-      const slotRef = doc(db, 'slotReservations', slotId);
+      const conflict = appointments.some(appointment =>
+        appointment.doctor === form.doctor &&
+        appointment.date === form.date &&
+        appointment.time === form.time &&
+        !['canceled', 'Rejected'].includes(appointment.status),
+      );
 
-      await runTransaction(db, async (transaction) => {
-        const slotSnapshot = await transaction.get(slotRef);
+      if (conflict) {
+        setPaymentError('This time slot is already booked. Choose another slot.');
+        return;
+      }
 
-        if (
-          slotSnapshot.exists() &&
-          slotSnapshot.data().status === 'reserved'
-        ) {
-          const error = new Error(
-            'This time slot was just booked by another patient. Please choose another slot.',
-          );
-          error.code = 'slot-taken';
-          throw error;
-        }
+      const bookedAt = new Date().toISOString();
+      const appointment = {
+        ...form,
+        amount: APPOINTMENT_FEE,
+        paymentMode,
+        paymentStatus: 'demo-paid',
+        payment: `${paymentMode} (demo)`,
+        token,
+        status: 'confirmed',
+        paymentProvider: 'demo',
+        createdAt: bookedAt,
+        bookedAt,
+        userEmail: authUser.email || '',
+      };
 
-        transaction.set(slotRef, {
-          doctor: form.doctor,
-          date: form.date,
-          time: form.time,
-          userId: user.uid,
-          appointmentId: appointmentRef.id,
-          status: 'reserved',
-          createdAt: serverTimestamp(),
-        });
+      const savedAppointment = createAppointment({
+        ...appointment,
+        uid: authUser.uid,
+      });
 
-        transaction.set(appointmentRef, {
-          ...form,
-          userId: user.uid,
-          userEmail: user.email,
-          amount: APPOINTMENT_FEE,
-          paymentMode,
-          paymentStatus: 'demo-paid',
-          token,
-          status: 'confirmed',
-          slotId,
-          notification: {
-            type: 'booking-confirmation',
-            status: 'pending',
-            email: user.email,
-            phone: form.phone,
-          },
-          paymentProvider: 'demo',
-          createdAt: serverTimestamp(),
-        });
+      createPaymentRecord({
+        uid: authUser.uid,
+        appointmentToken: token,
+        amount: APPOINTMENT_FEE,
+        paymentMode,
+        paymentStatus: 'demo-paid',
+        paymentProvider: 'demo',
+        createdAt: bookedAt,
       });
 
       setPayment(false);
-      setSuccess({
-        ...form,
-        amount: APPOINTMENT_FEE,
-        payment: `${paymentMode} (demo)`,
-        token,
-        bookedAt: new Date().toISOString(),
-      });
+      setSuccess(savedAppointment);
 
       setForm({
         name: '',
@@ -870,19 +732,72 @@ function AppContent() {
       setPaymentMode('UPI');
     } catch (error) {
       console.error(error);
-
-      if (error.code === 'slot-taken') {
-        setPayment(false);
-        setAuthError(error.message);
-      } else {
-        alert(
-          'Appointment save failed. Check Firebase Firestore setup and rules.',
-        );
-      }
+      setPaymentError(`Could not save the appointment or demo payment record: ${error.message}`);
     } finally {
       setSaving(false);
     }
   };
+
+  if (success) {
+    return (
+      <main className="receipt-page">
+        <section className="receipt success receipt-card">
+          <div className="receipt-header">
+            <div>
+              <div className="eyebrow">APPOINTMENT CONFIRMED</div>
+              <h1>Payment receipt</h1>
+            </div>
+            <div className="success-icon" aria-label="Payment confirmed">✓</div>
+          </div>
+
+          <div className="receipt-token">
+            <small>APPOINTMENT TOKEN</small>
+            <strong>{success.token}</strong>
+          </div>
+
+          <div className="receipt-details">
+            <div>
+              <span>Patient</span>
+              <b>{success.name}</b>
+              <small>Age {success.age} · {success.phone}</small>
+            </div>
+            <div><span>Doctor</span><b>{success.doctor}</b></div>
+            <div><span>Hospital</span><b>{success.hospital}</b></div>
+            <div>
+              <span>Appointment</span>
+              <b>{success.date} at {success.time}</b>
+            </div>
+          </div>
+
+          <div className="receipt-total">
+            <span>Total paid · {success.payment}</span>
+            <b>₹{success.amount}.00</b>
+          </div>
+
+          <p className="receipt-note">
+            Keep this token for your hospital visit. This is a demo payment receipt.
+          </p>
+
+          <div className="receipt-actions">
+            <button
+              type="button"
+              className="secondary-btn"
+              onClick={() => setSuccess(null)}
+            >
+              Back to home
+            </button>
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={() => downloadReceipt(success)}
+            >
+              Download receipt card
+            </button>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   if (directoryLoading) {
     return (
@@ -909,7 +824,10 @@ function AppContent() {
           <button
             type="button"
             className="secondary-btn"
-            onClick={() => setPayment(false)}
+            onClick={() => {
+              setPayment(false);
+              setPaymentError('');
+            }}
           >
             Back to appointment
           </button>
@@ -938,6 +856,7 @@ function AppContent() {
                   onClick={() => {
                     setPaymentMode(name);
                     setPaymentInput('');
+                    setPaymentError('');
                   }}
                 >
                   <Icon aria-hidden="true" />
@@ -1012,6 +931,10 @@ function AppContent() {
               </label>
             )}
 
+            {paymentError && (
+              <div className="admin-error" role="alert">{paymentError}</div>
+            )}
+
             <button
               type="button"
               className="primary-btn full checkout-submit"
@@ -1056,102 +979,48 @@ function AppContent() {
           </a>
 
           <button
+            type="button"
             className="menu-btn"
             onClick={() => setMenu(!menu)}
-            aria-label="Open menu"
+            aria-expanded={menu}
+            aria-controls="main-navigation"
+            aria-label={menu ? 'Close menu' : 'Open menu'}
           >
-            ☰
+            {menu ? '×' : '☰'}
           </button>
 
-          <nav className={menu ? 'open' : ''}>
-            <a href="#home">{t('home')}</a>
-            <a href="#hospitals">{t('hospitals')}</a>
-            <a href="#doctors">{t('doctors')}</a>
+          <nav id="main-navigation" className={menu ? 'open' : ''}>
+            <a href="#home" onClick={() => setMenu(false)}>{t('home')}</a>
+            <a href="#hospitals" onClick={() => setMenu(false)}>{t('hospitals')}</a>
+            <a href="#doctors" onClick={() => setMenu(false)}>{t('doctors')}</a>
             <a
               href="#appointment"
               onClick={(event) => {
                 event.preventDefault();
                 setMenu(false);
-                runAfterLogin(() =>
-                  document
-                    .querySelector('#appointment')
-                    ?.scrollIntoView({ behavior: 'smooth' }),
-                );
+                document
+                  .querySelector('#appointment')
+                  ?.scrollIntoView({ behavior: 'smooth' });
               }}
             >
               {t('appointment')}
             </a>
-            <a href="#about">{t('about')}</a>
-            <a href="/appointments">{t('myAppointments')}</a>
+            <a href="#about" onClick={() => setMenu(false)}>{t('about')}</a>
+            <a href="/appointments" onClick={() => setMenu(false)}>{t('myAppointments')}</a>
           </nav>
-
-          <div className="nav-actions">
-            <button
-              type="button"
-              className="outline-btn"
-              onClick={() =>
-                setLanguage((current) => (current === 'en' ? 'te' : 'en'))
-              }
-              aria-label="Switch language"
-            >
-              {language === 'en' ? 'తెలుగు' : 'English'}
-            </button>
-
-            {user ? (
-              <div style={{ position: 'relative' }}>
-                <button
-                  type="button"
-                  className="outline-btn auth-nav-btn"
-                  aria-label={`Account ${accountName}`}
-                  title={`Account ${accountName}`}
-                  disabled={!authReady}
-                  onClick={() => setUserMenuOpen((current) => !current)}
-                >
-                  <UserRound aria-hidden="true" />
-                  <span className="auth-user-name">{accountName}</span>
-                </button>
-
-                {userMenuOpen && (
-                  <div className="user-menu user-menu-desktop">
-                    <button
-                      type="button"
-                      className="user-menu-item"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        window.location.href = '/appointments';
-                      }}
-                    >
-                      My Appointments
-                    </button>
-                    <button
-                      type="button"
-                      className="user-menu-item"
-                      onClick={() => {
-                        setUserMenuOpen(false);
-                        signOut(auth);
-                      }}
-                    >
-                      Logout
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button
-                type="button"
-                className="outline-btn auth-nav-btn"
-                aria-label={authReady ? 'Login' : 'Checking authentication'}
-                title={authReady ? 'Login' : 'Checking authentication'}
-                disabled={!authReady}
-                onClick={openLogin}
-              >
-                <UserRound aria-hidden="true" />
-                <span className="auth-action-label">
-                  {authReady ? 'Login' : 'Checking...'}
-                </span>
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            className="outline-btn header-login-button"
+            onClick={handleAuthButton}
+            disabled={authBusy}
+            aria-label={authUser ? `Open profile for ${authUser.displayName || authUser.email}` : 'Log in'}
+            title={authUser ? 'Open profile' : 'Log in'}
+          >
+            {authUser ? <UserRound size={16} aria-hidden="true" /> : <LogIn size={16} aria-hidden="true" />}
+            <span className="header-login-label">
+              {authUser ? authUser.displayName || authUser.email?.split('@')[0] : 'Log in'}
+            </span>
+          </button>
         </div>
       </header>
 
@@ -1159,28 +1028,6 @@ function AppContent() {
         {directoryError && (
           <div className="offline-banner" role="status">
             {directoryError}
-          </div>
-        )}
-
-        {authSuccess && (
-          <div className="container" style={{ marginTop: '1rem' }}>
-            <div
-              role="status"
-              aria-live="polite"
-              style={{
-                background: '#eafaf1',
-                border: '1px solid #bde7c9',
-                color: '#0a7a37',
-                borderRadius: '12px',
-                padding: '0.8rem 1rem',
-                fontWeight: 700,
-                boxShadow: '0 8px 24px rgba(17, 144, 87, 0.12)',
-                position: 'relative',
-                zIndex: 2,
-              }}
-            >
-              {authSuccess}
-            </div>
           </div>
         )}
 
@@ -1233,11 +1080,9 @@ function AppContent() {
                   href="#appointment"
                   onClick={(event) => {
                     event.preventDefault();
-                    runAfterLogin(() =>
-                      document
-                        .querySelector('#appointment')
-                        ?.scrollIntoView({ behavior: 'smooth' }),
-                    );
+                    document
+                      .querySelector('#appointment')
+                      ?.scrollIntoView({ behavior: 'smooth' });
                   }}
                 >
                   Appointment
@@ -1516,18 +1361,13 @@ function AppContent() {
             <div className="appointment-info">
               <div className="eyebrow">APPOINTMENT REQUEST</div>
               <h2>Book a consultation with your selected doctor.</h2>
-              <p>
-                This version uses Firebase Authentication and Firestore. After
-                the demo payment step, the appointment is saved to the{' '}
-                <b>appointments</b> collection.
-              </p>
+              <p>Book a visit and manage your appointments securely.</p>
               <div className="info-list">
-                <div>✓ Login/Register with Firebase</div>
-                <div>✓ Phone OTP verification</div>
+                <div>✓ No account required</div>
                 <div>✓ Select hospital and doctor</div>
                 <div>✓ Choose date and time</div>
                 <div>✓ Demo payment step</div>
-                <div>✓ Appointment saved in Firestore</div>
+                <div>✓ Appointment saved on this device</div>
               </div>
             </div>
 
@@ -1605,7 +1445,10 @@ function AppContent() {
                   <label>{t('selectDoctor')}</label>
                   <select
                     value={form.doctor}
-                    onChange={(e) => update('doctor', e.target.value)}
+                    onChange={(e) => {
+                      update('doctor', e.target.value);
+                      update('time', '');
+                    }}
                     required
                   >
                     <option value="">{t('selectDoctor')}</option>
@@ -1625,36 +1468,55 @@ function AppContent() {
                     onChange={(e) => {
                       const nextDate = e.target.value;
                       update('date', /^\d{4}-\d{2}-\d{2}$/.test(nextDate) ? nextDate : '');
+                      update('time', '');
                     }}
                     required
                   />
                 </div>
               </div>
 
-              <div>
-                <label>{t('timeSlot')}</label>
-                <select
-                  value={form.time}
-                  onChange={(e) => update('time', e.target.value)}
-                  required
-                >
-                  <option value="">{t('selectTime')}</option>
-                  {timeSlots.map((slot) => (
-                    <option
-                      key={slot}
-                      value={slot}
-                      disabled={reservedSlots.includes(slot)}
-                    >
-                      {slot}
-                      {reservedSlots.includes(slot) ? ' · Booked' : ''}
-                    </option>
-                  ))}
-                </select>
-                {reservedSlots.length > 0 && (
-                  <small>
-                    {reservedSlots.length} slot(s) are already booked for this
-                    doctor on the selected date.
-                  </small>
+              <div className="time-slot-picker">
+                <div className="time-slot-heading">
+                  <label>{t('timeSlot')}</label>
+                  {form.time && <span className="selected-time-label">Selected: {form.time}</span>}
+                </div>
+                {!form.doctor || !form.date ? (
+                  <p className="slot-picker-prompt">Choose a doctor and date to see available times.</p>
+                ) : (
+                  <>
+                    <div className="slot-legend" aria-label="Slot availability legend">
+                      <span><i className="slot-legend-mark available" />Available</span>
+                      <span><i className="slot-legend-mark selected" />Selected</span>
+                      <span><i className="slot-legend-mark booked" />Booked</span>
+                    </div>
+                    <div className="time-slot-grid" role="group" aria-label="Appointment time slots">
+                      {timeSlots.map(slot => {
+                        const booked = reservedSlots.includes(slot);
+                        const selected = form.time === slot;
+                        const state = booked ? 'Booked' : selected ? 'Selected' : 'Available';
+
+                        return (
+                          <button
+                            type="button"
+                            key={slot}
+                            className={`time-slot-seat${selected ? ' selected' : ''}${booked ? ' booked' : ''}`}
+                            disabled={booked}
+                            aria-pressed={selected}
+                            aria-label={`${slot}, ${state}`}
+                            onClick={() => update('time', slot)}
+                          >
+                            <span className="slot-seat-time">{slot}</span>
+                            <span className="slot-seat-state">{state}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {reservedSlots.length === timeSlots.length ? (
+                      <small className="slot-availability-note">No times remain for this doctor on the selected date.</small>
+                    ) : reservedSlots.length > 0 ? (
+                      <small className="slot-availability-note">{reservedSlots.length} time{reservedSlots.length === 1 ? '' : 's'} already booked.</small>
+                    ) : null}
+                  </>
                 )}
               </div>
 
@@ -1668,14 +1530,14 @@ function AppContent() {
                 />
               </div>
 
-              {authError && (
-                <p className="login-error" role="alert">
-                  {authError}
+              {bookingError && (
+                <p className="booking-error" role="alert">
+                  {bookingError}
                 </p>
               )}
 
               <button className="primary-btn full" type="submit">
-                {user ? 'Continue to payment →' : 'Login to continue →'}
+                Continue to payment →
               </button>
             </form>
           </div>
@@ -1714,11 +1576,9 @@ function AppContent() {
                   className="primary-btn"
                   onClick={(event) => {
                     event.preventDefault();
-                    runAfterLogin(() =>
-                      document
-                        .querySelector('#appointment')
-                        ?.scrollIntoView({ behavior: 'smooth' }),
-                    );
+                    document
+                      .querySelector('#appointment')
+                      ?.scrollIntoView({ behavior: 'smooth' });
                   }}
                 >
                   Book appointment
@@ -1737,20 +1597,16 @@ function AppContent() {
                 <p>
                   KhammamCare is a website where people can explore listed
                   doctors and hospitals in Khammam, search by speciality, open
-                  hospital locations in Google Maps, and send appointment
-                  requests. It is built with React and Vite, uses Firebase
-                  Authentication for accounts, and stores appointments in Cloud
-                  Firestore. Checkout is a demo only; no real payment is
-                  processed.
+                  hospital locations in Google Maps, and save appointment
+                  requests in this browser. Checkout is a demo only; no real
+                  payment is processed.
                 </p>
               </div>
               <div className="tech-list">
                 <span>React</span>
                 <span>Vite</span>
                 <span>JavaScript</span>
-                <span>Firebase Authentication</span>
-                <span>Phone OTP</span>
-                <span>Cloud Firestore</span>
+                <span>Local browser storage</span>
                 <span>Responsive CSS</span>
                 <span>Google Maps links</span>
               </div>
@@ -1761,342 +1617,96 @@ function AppContent() {
 
       <footer>
         <div className="container">
-          © 2026 KhammamCare • React + Firebase student project
+          © 2026 KhammamCare • React local demo
         </div>
       </footer>
 
-      {/* LOGIN / REGISTER / PHONE OTP MODAL */}
-      {login && (
-        <Modal className="login-modal" onClose={closeLogin}>
-          <button
-            type="button"
-            className="modal-close"
-            aria-label="Close login"
-            onClick={closeLogin}
-          >
-            ×
-          </button>
+      {profileDialog}
 
-          {/* Firebase renders invisible reCAPTCHA here */}
-          <div id="phone-recaptcha" />
-
-          <div className="login-mark">
-            <LogIn aria-hidden="true" />
-          </div>
-
-          <div className="eyebrow">KHAMMAMCARE ACCOUNT</div>
-
-          <h2>
-            {authMethod === 'phone'
-              ? 'Login with OTP'
-              : authMode === 'login'
-                ? 'Welcome back'
-                : 'Create account'}
-          </h2>
-
-          <p className="login-intro">
-            {authMethod === 'phone'
-              ? 'Enter your mobile number to receive a one-time password.'
-              : authMode === 'login'
-                ? 'Sign in to continue with your appointment.'
-                : 'Create an account to continue with your appointment.'}
-          </p>
-
-          {authMethod === 'phone' ? (
-            <form
-              className="login-form"
-              onSubmit={otpSent ? verifyPhoneOtp : handleAuth}
-            >
-              <label htmlFor="auth-username-phone">Username</label>
-              <input
-                id="auth-username-phone"
-                placeholder="Your name"
-                type="text"
-                autoComplete="nickname"
-                value={authUsername}
-                onChange={(e) => setAuthUsername(e.target.value)}
-                minLength={2}
-                maxLength={40}
-                required
-              />
-
-              <label htmlFor="auth-phone">Mobile number</label>
-              <input
-                id="auth-phone"
-                placeholder="e.g. 9876543210"
-                type="tel"
-                inputMode="numeric"
-                autoComplete="tel"
-                maxLength={10}
-                value={authPhone}
-                onChange={(e) =>
-                  setAuthPhone(
-                    e.target.value.replace(/\D/g, '').slice(0, 10),
-                  )
-                }
-                required
-              />
-
-              {otpSent && (
-                <>
-                  <label htmlFor="auth-otp">OTP</label>
-                  <input
-                    id="auth-otp"
-                    placeholder="Enter 6-digit OTP"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    value={authOtp}
-                    onChange={(e) =>
-                      setAuthOtp(
-                        e.target.value.replace(/\D/g, '').slice(0, 6),
-                      )
-                    }
-                    required
-                  />
-                </>
-              )}
-
-              {authError && (
-                <p className="login-error" role="alert">
-                  {authError}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                className="primary-btn full"
-                disabled={authLoading}
-              >
-                {authLoading
-                  ? otpSent
-                    ? 'Verifying...'
-                    : 'Sending OTP...'
-                  : otpSent
-                    ? 'Verify OTP'
-                    : 'Send OTP'}
-              </button>
-
-              {otpSent && (
-                <button
-                  type="button"
-                  className="card-link"
-                  disabled={authLoading}
-                  onClick={() => {
-                    setAuthOtp('');
-                    setOtpSent(false);
-                    setPhoneConfirmation(null);
-                    setAuthError('');
-                    clearRecaptcha();
-                  }}
-                >
-                  Change number / Resend OTP
-                </button>
-              )}
-
-              <div className="auth-method-switch">
-                <button
-                  type="button"
-                  className="card-link"
-                  onClick={() => {
-                    setAuthMethod('email');
-                    setAuthError('');
-                    resetPhoneAuth();
-                  }}
-                >
-                  Use email login
-                </button>
-              </div>
-            </form>
-          ) : (
-            <form className="login-form" onSubmit={handleAuth}>
-              {authMode === 'register' && (
-                <>
-                  <label htmlFor="auth-username">Username</label>
-                  <input
-                    id="auth-username"
-                    placeholder="Your name"
-                    type="text"
-                    autoComplete="nickname"
-                    value={authUsername}
-                    onChange={(e) => setAuthUsername(e.target.value)}
-                    minLength={2}
-                    maxLength={40}
-                    required
-                  />
-                </>
-              )}
-
-              <label htmlFor="auth-email">Email address</label>
-              <input
-                id="auth-email"
-                placeholder="you@example.com"
-                type="email"
-                autoComplete="email"
-                value={authEmail}
-                onChange={(e) => setAuthEmail(e.target.value)}
-                required
-              />
-
-              <label htmlFor="auth-password">Password</label>
-              <input
-                id="auth-password"
-                placeholder="At least 6 characters"
-                type="password"
-                autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
-                value={authPassword}
-                onChange={(e) => setAuthPassword(e.target.value)}
-                minLength={6}
-                required
-              />
-
-              {authError && (
-                <p className="login-error" role="alert">
-                  {authError}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                className="primary-btn full"
-                disabled={authLoading}
-              >
-                {authLoading
-                  ? 'Please wait...'
-                  : authMode === 'login'
-                    ? 'Login'
-                    : 'Create account'}
-              </button>
-
-              {authMode === 'login' && (
-                <button
-                  type="button"
-                  className="card-link forgot-link"
-                  onClick={resetPassword}
-                  disabled={authLoading}
-                >
-                  Forgot password?
-                </button>
-              )}
-
-              <div className="auth-method-switch">
-                <button
-                  type="button"
-                  className="card-link"
-                  onClick={() => {
-                    setAuthMethod('phone');
-                    setAuthError('');
-                    resetPhoneAuth();
-                  }}
-                >
-                  Use phone OTP
-                </button>
-              </div>
-            </form>
-          )}
-
-          <p className="login-switch">
-            {authMethod === 'phone'
-              ? 'Need email login?'
-              : authMode === 'login'
-                ? 'New patient?'
-                : 'Already have an account?'}{' '}
+      {loginOpen && (
+        <div
+          className="modal show"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setLoginOpen(false);
+          }}
+        >
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
             <button
               type="button"
-              className="card-link"
+              className="modal-close"
+              aria-label="Close login"
+              onClick={() => setLoginOpen(false)}
+            >
+              <X size={20} aria-hidden="true" />
+            </button>
+            <div className="eyebrow">KHAMMAMCARE ACCOUNT</div>
+            <h2 id="login-title">{loginMode === 'create-account' ? 'Create your account' : 'Welcome back'}</h2>
+            <p>{loginMode === 'create-account' ? 'Create an account to sign in.' : 'Sign in with your email and password.'}</p>
+            <form className="login-form" onSubmit={handleLoginSubmit}>
+              {loginMode === 'create-account' && (
+                <>
+                  <label htmlFor="login-name">Your name</label>
+                  <input
+                    id="login-name"
+                    type="text"
+                    autoComplete="name"
+                    maxLength={60}
+                    required
+                    value={loginName}
+                    onChange={(event) => setLoginName(event.target.value)}
+                  />
+                </>
+              )}
+              <label htmlFor="login-email">Email</label>
+              <input
+                id="login-email"
+                type="email"
+                autoComplete="email"
+                required
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+              />
+              <label htmlFor="login-password">Password</label>
+              <input
+                id="login-password"
+                type="password"
+                autoComplete={loginMode === 'create-account' ? 'new-password' : 'current-password'}
+                minLength={6}
+                required
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+              />
+              {loginError && <p className="booking-error" role="alert">{loginError}</p>}
+              <button type="submit" className="primary-btn" disabled={authBusy}>
+                {authBusy ? 'Please wait…' : loginMode === 'create-account' ? 'Create account' : 'Log in'}
+              </button>
+            </form>
+            <button
+              type="button"
+              className="auth-mode-toggle"
               onClick={() => {
-                if (authMethod === 'phone') {
-                  setAuthMethod('email');
-                  setAuthError('');
-                  resetPhoneAuth();
-                  return;
-                }
-
-                setAuthMode(authMode === 'login' ? 'register' : 'login');
-                setAuthError('');
+                setLoginMode(loginMode === 'sign-in' ? 'create-account' : 'sign-in');
+                setLoginError('');
               }}
             >
-              {authMethod === 'phone'
-                ? 'Switch to email'
-                : authMode === 'login'
-                  ? 'Create account'
-                  : 'Login'}
+              {loginMode === 'create-account' ? 'Already have an account? Log in' : 'Create an account'}
             </button>
-          </p>
-        </Modal>
+            {loginMode === 'sign-in' && (
+              <button
+                type="button"
+                className="auth-mode-toggle password-reset-button"
+                onClick={handlePasswordReset}
+                disabled={authBusy}
+              >
+                Forgot password?
+              </button>
+            )}
+            {loginNotice && <p className="login-notice" role="status">{loginNotice}</p>}
+          </section>
+        </div>
       )}
 
-      {/* SUCCESS / RECEIPT MODAL */}
-      {success && (
-        <Modal onClose={() => setSuccess(null)}>
-          <button className="modal-close" onClick={() => setSuccess(null)}>
-            ×
-          </button>
-          <div className="receipt success">
-            <div className="receipt-header">
-              <div>
-                <div className="eyebrow">APPOINTMENT CONFIRMED</div>
-                <h2>Payment receipt</h2>
-              </div>
-              <div className="success-icon">✓</div>
-            </div>
-
-            <div className="receipt-token">
-              <small>APPOINTMENT TOKEN</small>
-              <strong>{success.token}</strong>
-            </div>
-
-            <div className="receipt-details">
-              <div>
-                <span>Patient</span>
-                <b>{success.name}</b>
-                <small>
-                  Age {success.age} · {success.phone}
-                </small>
-              </div>
-              <div>
-                <span>Doctor</span>
-                <b>{success.doctor}</b>
-              </div>
-              <div>
-                <span>Hospital</span>
-                <b>{success.hospital}</b>
-              </div>
-              <div>
-                <span>Appointment</span>
-                <b>
-                  {success.date} at {success.time}
-                </b>
-              </div>
-            </div>
-
-            <div className="receipt-total">
-              <span>Total paid · {success.payment}</span>
-              <b>₹{success.amount}.00</b>
-            </div>
-
-            <p className="receipt-note">
-              Keep this token for your hospital visit. This is a demo payment
-              receipt.
-            </p>
-
-            <div className="receipt-actions">
-              <button
-                className="secondary-btn"
-                onClick={() => setSuccess(null)}
-              >
-                Close
-              </button>
-              <button
-                className="primary-btn"
-                onClick={() => downloadReceipt(success)}
-              >
-                Download receipt
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
     </>
   );
 }

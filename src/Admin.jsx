@@ -1,42 +1,38 @@
 import { useEffect, useMemo, useState } from 'react';
 import { getAppointmentStats } from './adminStats.js';
-
-const storageKey = 'khammamcare-demo-appointments';
-const readAppointments = () => {
-  try {
-    const appointments = JSON.parse(localStorage.getItem(storageKey) || '[]');
-    return Array.isArray(appointments) ? appointments : [];
-  } catch {
-    return [];
-  }
-};
+import { subscribeToAllAppointments, updateAppointment } from './appointmentStorage.js';
 
 export default function Admin() {
-  const [appointments, setAppointments] = useState(readAppointments);
+  const [appointments, setAppointments] = useState([]);
   const [search, setSearch] = useState('');
   const [hospitalFilter, setHospitalFilter] = useState('');
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    const syncAppointments = () => setAppointments(readAppointments());
-    window.addEventListener('storage', syncAppointments);
-    return () => window.removeEventListener('storage', syncAppointments);
+    return subscribeToAllAppointments(setAppointments);
   }, []);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return appointments.filter(a =>
       (!hospitalFilter || a.hospital === hospitalFilter) &&
-      (!q || [a.name, a.phone, a.hospital, a.doctor, a.date, a.status, a.paymentMode]
-        .filter(Boolean).join(' ').toLowerCase().includes(q))
+      (!q || [
+        a.name, a.phone, a.hospital, a.doctor, a.date, a.status, a.paymentMode,
+      ].filter(Boolean).join(' ').toLowerCase().includes(q))
     );
   }, [appointments, search, hospitalFilter]);
 
-  const hospitalNames = useMemo(() => [...new Set(appointments.map(appointment => appointment.hospital).filter(Boolean))].sort(), [appointments]);
+  const hospitalNames = useMemo(
+    () => [...new Set(appointments.map(a => a.hospital).filter(Boolean))].sort(),
+    [appointments],
+  );
 
-  const changeStatus = (id, status) => {
-    const updated = appointments.map(appointment => appointment.id === id ? { ...appointment, status } : appointment);
-    localStorage.setItem(storageKey, JSON.stringify(updated));
-    setAppointments(updated);
+  const changeStatus = async (appointmentId, status) => {
+    try {
+      await updateAppointment(appointmentId, { status });
+    } catch (updateError) {
+      setError(`Could not update appointment: ${updateError.message}`);
+    }
   };
 
   const stats = getAppointmentStats(appointments);
@@ -47,14 +43,13 @@ export default function Admin() {
         <div>
           <div className="eyebrow">KHAMMAMCARE • ADMIN</div>
           <h1>Appointment Dashboard</h1>
-          <p>Appointments saved in this browser's local storage.</p>
+          <p>Appointments stored securely in Firebase.</p>
         </div>
         <a className="admin-back" href="/">← Back to website</a>
       </div>
 
       <div className="admin-stats">
         <div><span>Total</span><strong>{stats.total}</strong></div>
-        <div><span>Logged in</span><strong>{stats.loggedIn}</strong></div>
         <div><span>Seen</span><strong>{stats.seen}</strong></div>
         <div><span>Pending</span><strong>{stats.pending}</strong></div>
         <div><span>Confirmed</span><strong>{stats.confirmed}</strong></div>
@@ -64,14 +59,23 @@ export default function Admin() {
       <div className="admin-panel">
         <div className="admin-toolbar">
           <h2>Patient appointments</h2>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search patient, doctor, hospital..." />
-          <select value={hospitalFilter} onChange={e => setHospitalFilter(e.target.value)}><option value="">All hospitals</option>{hospitalNames.map(hospital => <option key={hospital}>{hospital}</option>)}</select>
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search patient, doctor, hospital..."
+          />
+          <select value={hospitalFilter} onChange={e => setHospitalFilter(e.target.value)}>
+            <option value="">All hospitals</option>
+            {hospitalNames.map(hospital => <option key={hospital} value={hospital}>{hospital}</option>)}
+          </select>
         </div>
+
+        {error && <div className="admin-error" role="alert">{error}</div>}
 
         {filtered.length === 0 && (
           <div className="admin-empty">
             <h3>No appointments found</h3>
-            <p>Book an appointment from the main website. After demo payment, it will appear here automatically.</p>
+            <p>Book an appointment from the main website. Demo checkout records a demo booking only.</p>
           </div>
         )}
 
@@ -95,13 +99,18 @@ export default function Admin() {
                     <td>{a.time || '-'}</td>
                     <td><span className="payment-badge">{a.paymentMode || 'Demo'}</span></td>
                     <td>
-                      <select value={a.status || 'confirmed'} onChange={e => changeStatus(a.id, e.target.value)}>
+                      <select
+                        value={a.status || 'confirmed'}
+                        onChange={e => changeStatus(a.id, e.target.value)}
+                        aria-label={`Change status for ${a.name || 'appointment'}`}
+                      >
                         <option value="Pending">Pending</option>
                         <option value="confirmed">Confirmed</option>
                         <option value="Approved">Approved</option>
                         <option value="Seen">Seen</option>
                         <option value="Rejected">Rejected</option>
                         <option value="Completed">Completed</option>
+                        <option value="canceled">Canceled</option>
                       </select>
                     </td>
                   </tr>

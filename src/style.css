@@ -1,3 +1,13 @@
+:root {
+    color-scheme: light;
+    --color-primary: #1769e0;
+    --color-primary-dark: #0c4db3;
+    --color-primary-soft: #eaf2ff;
+    --color-accent: #00a896;
+    --color-page: #f7faff;
+    --color-ink: #172f36
+}
+
 * {
     box-sizing: border-box;
     margin: 0;
@@ -10,8 +20,8 @@ html {
 
 body {
     font-family: Inter, Arial, sans-serif;
-    color: #172033;
-    background: #f7fbff;
+    color: var(--color-ink);
+    background: var(--color-page);
     line-height: 1.5
 }
 
@@ -49,7 +59,7 @@ body {
 
 .brand>span:last-child>span,
 footer span {
-    color: #087fdb
+    color: var(--color-primary)
 }
 
 .brand small {
@@ -66,25 +76,38 @@ footer span {
     width: 40px;
     height: 40px;
     border-radius: 12px;
-    background: #087fdb;
+    background: var(--color-primary);
     color: #fff;
     font-size: 24px
 }
 
 nav {
     display: flex;
-    gap: 25px
+    align-items: center;
+    gap: 6px
 }
 
 nav a {
+    padding: 9px 12px;
+    border-radius: 9px;
     color: #435064;
+    cursor: pointer;
     text-decoration: none;
     font-size: 14px;
-    font-weight: 600
+    font-weight: 600;
+    white-space: nowrap;
+    transition: color .18s ease, background .18s ease
 }
 
-nav a:hover {
-    color: #087fdb
+nav a:hover,
+nav a:focus-visible {
+    color: var(--color-primary-dark);
+    background: var(--color-primary-soft)
+}
+
+nav a:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px
 }
 
 button,
@@ -119,8 +142,8 @@ button:disabled {
 .outline-btn,
 .secondary-btn {
     background: #fff;
-    border: 1px solid #087fdb;
-    color: #087fdb;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
     padding: 11px 20px;
     border-radius: 9px;
     font-weight: 700;
@@ -129,7 +152,7 @@ button:disabled {
 
 .outline-btn:hover,
 .secondary-btn:hover {
-    box-shadow: 0 10px 18px rgba(8, 127, 219, .12)
+    box-shadow: 0 10px 18px rgba(23, 105, 224, .14)
 }
 
 .nav-actions {
@@ -161,7 +184,7 @@ button:disabled {
     padding: 4px 0;
     border: 0;
     background: transparent;
-    color: #087fdb;
+    color: var(--color-primary);
     font-size: 13px;
     font-weight: 700;
     cursor: pointer
@@ -199,7 +222,7 @@ button:disabled {
     flex: 0 0 54px;
     border-radius: 50%;
     background: #e7f4f4;
-    color: #087f8c
+    color: var(--color-primary)
 }
 
 .profile-identity h2 {
@@ -253,7 +276,7 @@ button:disabled {
 .profile-signout-button {
     border: 0;
     background: transparent;
-    color: #087fdb;
+    color: var(--color-primary);
     font-weight: 700;
     cursor: pointer
 }
@@ -269,7 +292,7 @@ button:disabled {
 }
 
 .appointment-btn {
-    background: #087fdb;
+    background: var(--color-primary);
     color: #fff;
     padding: 11px 16px;
     border-radius: 9px;
@@ -281,7 +304,7 @@ button:disabled {
 .primary-btn {
     display: inline-block;
     border: 0;
-    background: #087fdb;
+    background: var(--color-primary);
     color: #fff;
     padding: 12px 20px;
     border-radius: 9px;
@@ -292,13 +315,13 @@ button:disabled {
 }
 
 .primary-btn:hover {
-    background: #066ec8;
+    background: var(--color-primary-dark);
     box-shadow: 0 16px 28px rgba(8, 127, 219, .22)
 }
 
 .doctor-btn {
-    color: #087fdb;
-    border: 1px solid #087fdb;
+    color: var(--color-primary);
+    border: 1px solid var(--color-primary);
     padding: 10px 13px;
     border-radius: 9px;
     font-size: 13px;
@@ -308,11 +331,11 @@ button:disabled {
 }
 
 .doctor-btn:hover {
-    background: #eaf7ff
+    background: var(--color-primary-soft)
 }
 
 .appointment-btn:hover {
-    background: #066bc6
+    background: var(--color-primary-dark)
 }
 
 .menu-btn {
@@ -320,17 +343,50 @@ button:disabled {
     width: 44px;
     height: 44px;
     place-items: center;
-    border: 0;
+    border: 1px solid transparent;
     border-radius: 8px;
     background: none;
-    color: #172033;
+    color: var(--color-ink);
     font-size: 25px;
-    cursor: pointer
+    cursor: pointer;
+    transition: color .18s ease, background .18s ease, box-shadow .18s ease, transform .18s ease
+}
+
+.menu-btn:hover,
+.menu-btn[aria-expanded="true"] {
+    background: var(--color-primary);
+    color: #fff;
+    box-shadow: 0 5px 14px rgba(23, 105, 224, .22)
+}
+
+.menu-btn:hover {
+    animation: menu-button-pulse .9s ease-in-out 2
+}
+
+.menu-btn:focus-visible {
+    outline: 3px solid rgba(23, 105, 224, .3);
+    outline-offset: 3px
+}
+
+.menu-btn:active {
+    transform: scale(.94)
+}
+
+@keyframes menu-button-pulse {
+    50% {
+        box-shadow: 0 0 0 6px rgba(23, 105, 224, 0)
+    }
+}
+
+@media(prefers-reduced-motion: reduce) {
+    .menu-btn:hover {
+        animation: none
+    }
 }
 
 .hero {
     padding: 78px 0;
-    background: linear-gradient(125deg, #eaf7ff, #f9fcff)
+    background: linear-gradient(125deg, var(--color-primary-soft), #e8fbf8)
 }
 
 .hero-grid {
@@ -341,7 +397,7 @@ button:disabled {
 }
 
 .eyebrow {
-    color: #087fdb;
+    color: var(--color-primary);
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 1.5px
@@ -353,7 +409,7 @@ button:disabled {
 }
 
 .hero h1 span {
-    color: #087fdb
+    color: var(--color-primary)
 }
 
 .hero p {
@@ -370,7 +426,7 @@ button:disabled {
 .primary-btn {
     display: inline-block;
     border: 0;
-    background: #087fdb;
+    background: var(--color-primary);
     color: #fff;
     padding: 12px 20px;
     border-radius: 9px;
@@ -387,7 +443,7 @@ button:disabled {
 
 .stats b {
     display: block;
-    color: #087fdb;
+    color: var(--color-primary);
     font-size: 24px
 }
 
@@ -397,10 +453,10 @@ button:disabled {
 }
 
 .hero-card {
-    background: linear-gradient(180deg, #ffffff 0%, #f5fbff 100%);
+    background: linear-gradient(180deg, #ffffff 0%, var(--color-page) 100%);
     border-radius: 22px;
     padding: 25px;
-    box-shadow: 0 22px 50px rgba(19, 71, 126, 0.12);
+    box-shadow: 0 22px 50px rgba(23, 105, 224, 0.14);
     border: 1px solid #dfeef9
 }
 
@@ -431,7 +487,7 @@ button:disabled {
     display: none;
     font-size: 95px;
     text-align: center;
-    background: linear-gradient(135deg, #eaf7ff, #dff5ff);
+    background: linear-gradient(135deg, var(--color-primary-soft), #d9f7f2);
     border-radius: 18px;
     margin: 20px 0;
     padding: 22px;
@@ -454,7 +510,7 @@ button:disabled {
     border-radius: 18px;
     overflow: hidden;
     border: 2px solid #dfeef9;
-    box-shadow: 0 8px 18px rgba(16, 88, 160, .08);
+    box-shadow: 0 8px 18px rgba(23, 105, 224, .1);
     flex-shrink: 0
 }
 
@@ -492,7 +548,7 @@ button:disabled {
 }
 
 .card-link {
-    color: #087fdb;
+    color: var(--color-primary);
     text-decoration: none;
     font-weight: 800
 }
@@ -502,10 +558,10 @@ button:disabled {
     align-items: center;
     justify-content: flex-start;
     gap: 8px;
-    color: #0a6ec9;
+    color: var(--color-primary);
     font-weight: 800;
     text-decoration: none;
-    background: #edf8ff;
+    background: var(--color-primary-soft);
     border: 1px solid #d2ebff;
     border-radius: 10px;
     padding: 10px 12px;
@@ -515,7 +571,7 @@ button:disabled {
 .contact-number:hover {
     text-decoration: none;
     transform: translateY(-1px);
-    box-shadow: 0 10px 20px rgba(26, 96, 176, .08)
+    box-shadow: 0 10px 20px rgba(23, 105, 224, .1)
 }
 
 .contact-detail {
@@ -534,7 +590,7 @@ button:disabled {
 }
 
 .contact-detail strong {
-    color: #0a6ec9;
+    color: var(--color-primary);
     font-size: 13px;
     overflow-wrap: anywhere
 }
@@ -553,7 +609,7 @@ button:disabled {
 
 .help-tags span {
     background: #f4f9ff;
-    color: #0d6ec9;
+    color: var(--color-primary);
     border: 1px solid #d7ebff;
     border-radius: 999px;
     padding: 6px 10px;
@@ -567,7 +623,7 @@ button:disabled {
 }
 
 .health-support-inner {
-    background: linear-gradient(90deg, #0b7fdd, #0b5db3);
+    background: linear-gradient(100deg, var(--color-primary), var(--color-accent));
     border-radius: 18px;
     padding: 22px 26px;
     display: flex;
@@ -575,11 +631,11 @@ button:disabled {
     align-items: center;
     gap: 16px;
     color: #fff;
-    box-shadow: 0 16px 44px rgba(11, 95, 180, 0.2)
+    box-shadow: 0 16px 44px rgba(23, 105, 224, 0.2)
 }
 
 .health-support-inner .eyebrow {
-    color: #eaf7ff
+    color: var(--color-primary-soft)
 }
 
 .health-support-inner h2 {
@@ -699,7 +755,7 @@ button:disabled {
 .hospital-icon {
     height: 120px;
     border-radius: 12px;
-    background: #eaf7ff;
+    background: var(--color-primary-soft);
     display: grid;
     place-items: center;
     font-size: 55px;
@@ -708,8 +764,8 @@ button:disabled {
 
 .tag {
     display: inline-block;
-    color: #087fdb;
-    background: #eaf7ff;
+    color: var(--color-primary);
+    background: var(--color-primary-soft);
     border-radius: 20px;
     padding: 5px 9px;
     font-size: 10px;
@@ -740,7 +796,7 @@ button:disabled {
 .map-btn {
     border: 1px solid #d5e1ed;
     background: #fff;
-    color: #087fdb
+    color: var(--color-primary)
 }
 
 .map-btn:hover {
@@ -750,17 +806,17 @@ button:disabled {
 
 .book-btn {
     border: 0;
-    background: #087fdb;
+    background: var(--color-primary);
     color: #fff
 }
 
 .book-btn:hover {
-    background: #066bc6;
+    background: var(--color-primary-dark);
     transform: translateY(-1px)
 }
 
 .doctors-section {
-    background: #eef8ff
+    background: var(--color-primary-soft)
 }
 
 .doctor-toolbar {
@@ -790,7 +846,7 @@ button:disabled {
     border-radius: 50%;
     margin: auto;
     background: #dff1ff;
-    color: #087fdb;
+    color: var(--color-primary);
     display: grid;
     place-items: center;
     font-size: 24px;
@@ -803,7 +859,7 @@ button:disabled {
 }
 
 .doctor-card .speciality {
-    color: #087fdb;
+    color: var(--color-primary);
     font-size: 12px;
     font-weight: 700
 }
@@ -823,7 +879,7 @@ button:disabled {
 .doctor-card button {
     margin-top: 13px;
     border: 0;
-    background: #087fdb;
+    background: var(--color-primary);
     color: #fff;
     padding: 8px 14px;
     border-radius: 7px;
@@ -833,8 +889,8 @@ button:disabled {
 .load-more {
     display: block;
     margin: 28px auto 0;
-    border: 1px solid #087fdb;
-    color: #087fdb;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
     background: #fff;
     border-radius: 8px;
     padding: 11px 24px;
@@ -900,7 +956,7 @@ button:disabled {
 }
 
 .selected-time-label {
-    color: #087f8c;
+    color: var(--color-primary);
     font-size: 11px;
     font-weight: 800
 }
@@ -940,8 +996,8 @@ button:disabled {
 }
 
 .slot-legend-mark.selected {
-    border-color: #087f8c;
-    background: #087f8c
+    border-color: var(--color-primary);
+    background: var(--color-primary)
 }
 
 .slot-legend-mark.booked {
@@ -973,16 +1029,16 @@ button:disabled {
 }
 
 .time-slot-seat:not(:disabled):hover {
-    border-color: #087f8c;
-    border-bottom-color: #087f8c;
+    border-color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
     background: #f1f9f8;
     transform: translateY(-2px)
 }
 
 .time-slot-seat.selected {
-    border-color: #087f8c;
+    border-color: var(--color-primary);
     border-bottom-color: #06636c;
-    background: #087f8c;
+    background: var(--color-primary);
     color: #fff
 }
 
@@ -1020,7 +1076,7 @@ button:disabled {
 }
 
 .about {
-    background: #eef8ff
+    background: var(--color-primary-soft)
 }
 
 .about-card {
@@ -1043,7 +1099,7 @@ button:disabled {
 }
 
 .source-note {
-    background: #f7fbff;
+    background: var(--color-page);
     border-radius: 14px;
     padding: 22px
 }
@@ -1068,11 +1124,11 @@ button:disabled {
     width: 20px;
     height: 20px;
     flex: 0 0 20px;
-    color: #087fdb
+    color: var(--color-primary)
 }
 
 .source-note b {
-    color: #087fdb
+    color: var(--color-primary)
 }
 
 .footer {
@@ -1170,8 +1226,8 @@ footer {
 }
 
 .modal-card .login-form input:focus {
-    border-color: #1685d4;
-    box-shadow: 0 0 0 3px rgba(8, 127, 219, .12)
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px rgba(23, 105, 224, .14)
 }
 
 .modal-card .login-form .primary-btn {
@@ -1202,7 +1258,7 @@ footer {
 }
 
 .modal-close:hover {
-    background: #eaf1f7;
+    background: var(--color-primary-soft);
     color: #172033
 }
 
@@ -1252,7 +1308,7 @@ footer {
 .pay-options button.active {
     border-color: #c9e5f7;
     background: #fff;
-    color: #087fdb;
+    color: var(--color-primary);
     box-shadow: 0 2px 8px rgba(28, 91, 138, .08)
 }
 
@@ -1275,8 +1331,8 @@ footer {
 .token {
     font-size: 24px;
     font-weight: 800;
-    color: #087fdb;
-    background: #eaf7ff;
+    color: var(--color-primary);
+    background: var(--color-primary-soft);
     border-radius: 10px;
     padding: 12px;
     margin: 15px 0
@@ -1336,8 +1392,8 @@ footer {
 }
 
 .receipt-token {
-    background: #eaf7ff;
-    border: 1px dashed #087fdb;
+    background: var(--color-primary-soft);
+    border: 1px dashed var(--color-primary);
     border-radius: 12px;
     padding: 14px 16px;
     margin: 20px 0
@@ -1355,7 +1411,7 @@ footer {
 
 .receipt-token strong {
     display: block;
-    color: #087fdb;
+    color: var(--color-primary);
     font-size: 27px;
     letter-spacing: 1px;
     margin-top: 3px
@@ -1398,12 +1454,12 @@ footer {
 }
 
 .receipt-total b {
-    color: #087fdb;
+    color: var(--color-primary);
     font-size: 22px
 }
 
 .receipt-note {
-    background: #f7fbff;
+    background: var(--color-page);
     border: 1px solid #e5edf5;
     border-radius: 9px;
     color: #68778a !important;
@@ -1429,8 +1485,8 @@ footer {
 }
 
 .receipt-page .receipt-actions .primary-btn {
-    background: #087f8c;
-    border-color: #087f8c
+    background: var(--color-primary);
+    border-color: var(--color-primary)
 }
 
 @media(max-width:900px) {
@@ -1450,10 +1506,12 @@ footer {
     }
     .menu-btn {
         display: grid;
-        margin-left: auto
+        order: 3;
+        margin-left: 0
     }
     .header-login-button {
-        margin-left: 0;
+        order: 2;
+        margin-left: auto;
         padding: 8px 10px
     }
     nav.open {
@@ -1464,8 +1522,9 @@ footer {
         right: 0;
         z-index: 25;
         flex-direction: column;
-        gap: 0;
-        padding: 10px 18px;
+        align-items: stretch;
+        gap: 2px;
+        padding: 10px 12px;
         border: 1px solid #e8eef5;
         border-radius: 0 0 10px 10px;
         background: #fff;
@@ -1476,8 +1535,9 @@ footer {
     nav.open a {
         display: flex;
         align-items: center;
+        width: 100%;
         min-height: 44px;
-        padding: 10px 4px
+        padding: 10px 12px
     }
     .nav-actions {
         order: 3;
@@ -1497,7 +1557,7 @@ footer {
 
 @media(max-width:600px) {
     .hero {
-        padding: 55px 0
+        padding: 46px 0 40px
     }
     .stats {
         gap: 18px;
@@ -1519,10 +1579,15 @@ footer {
         padding: 18px 20px
     }
     .section {
-        padding: 60px 0
+        padding: 48px 0
     }
     .section-head h2 {
-        font-size: 27px
+        font-size: clamp(24px, 7vw, 28px)
+    }
+    .section-head {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px
     }
     .appointment-grid {
         gap: 28px
@@ -1538,10 +1603,48 @@ footer {
         grid-template-columns: 1fr
     }
     .nav {
-        height: 65px
+        height: 65px;
+        gap: 6px
+    }
+    .header-login-button {
+        max-width: min(96px, 28vw);
+        min-height: 38px;
+        gap: 4px;
+        padding: 5px 7px;
+        font-size: 11px
+    }
+    .header-login-button svg {
+        width: 14px;
+        height: 14px;
+        flex: 0 0 14px
+    }
+    .header-login-label {
+        max-width: clamp(34px, 18vw, 64px)
     }
     .menu-btn {
-        order: 2
+        width: 40px;
+        height: 40px
+    }
+    .primary-btn,
+    .secondary-btn,
+    .outline-btn,
+    .hospital-actions a,
+    .hospital-actions button,
+    .doctor-card button,
+    .load-more {
+        min-height: 44px
+    }
+    input,
+    select,
+    textarea {
+        font-size: 16px
+    }
+    .emergency-card .primary-btn {
+        display: flex;
+        width: 100%;
+        align-items: center;
+        justify-content: center;
+        text-align: center
     }
     .appointment-btn {
         padding: 9px 11px;
@@ -1590,7 +1693,7 @@ footer {
     height: 78px;
     border-radius: 50%;
     object-fit: cover;
-    border: 3px solid #eaf7ff;
+    border: 3px solid var(--color-primary-soft);
     display: block
 }
 
@@ -1629,11 +1732,11 @@ footer {
 }
 
 .pay-options button:hover {
-    border-color: #087fdb
+    border-color: var(--color-primary)
 }
 
 .demo-pay {
-    background: #f7fbff;
+    background: var(--color-page);
     border: 1px solid #e5edf5;
     border-radius: 12px;
     padding: 15px;
@@ -1645,7 +1748,7 @@ footer {
 }
 
 .demo-pay small {
-    color: #087fdb;
+    color: var(--color-primary);
     font-weight: 700
 }
 
@@ -1699,7 +1802,7 @@ footer {
     border: 1px solid #dce6ee;
     border-radius: 12px;
     background: #fff;
-    box-shadow: 0 8px 24px rgba(22, 70, 109, .06)
+    box-shadow: 0 8px 24px rgba(23, 47, 54, .06)
 }
 
 .checkout-card h2 {
@@ -1852,7 +1955,7 @@ footer {
 .admin-back {
     background: #fff;
     border: 1px solid #dbe4ee;
-    color: #087fdb;
+    color: var(--color-primary);
     text-decoration: none;
     padding: 11px 16px;
     border-radius: 9px;
@@ -1884,7 +1987,7 @@ footer {
 
 .admin-stats strong {
     display: block;
-    color: #087fdb;
+    color: var(--color-primary);
     font-size: 30px;
     margin-top: 4px
 }
@@ -1975,8 +2078,8 @@ footer {
 
 .payment-badge {
     display: inline-block;
-    background: #eaf7ff;
-    color: #087fdb;
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
     padding: 5px 8px;
     border-radius: 20px;
     font-weight: 800
@@ -2018,7 +2121,7 @@ footer {
     height: 18px;
     margin-right: 8px;
     border: 3px solid #dbeafe;
-    border-top-color: #087fdb;
+    border-top-color: var(--color-primary);
     border-radius: 50%;
     vertical-align: -4px;
     animation: spin .8s linear infinite
@@ -2074,7 +2177,7 @@ footer {
 }
 
 .filter-check input {
-    accent-color: #087fdb
+    accent-color: var(--color-primary)
 }
 
 .directory-admin {
@@ -2083,7 +2186,7 @@ footer {
 }
 
 .admin-feedback {
-    color: #087fdb;
+    color: var(--color-primary);
     font-size: 13px;
     font-weight: 800
 }
@@ -2175,7 +2278,7 @@ footer {
     display: grid;
     place-items: center;
     border-radius: 10px;
-    color: #087f8c;
+    color: var(--color-primary);
     background: #e8f6f5
 }
 
@@ -2234,7 +2337,7 @@ footer {
 
 .appointment-heading p svg {
     flex: 0 0 auto;
-    color: #087f8c
+    color: var(--color-primary)
 }
 
 .appointment-meta {
@@ -2271,7 +2374,7 @@ footer {
 
 .appointment-meta dd svg {
     flex: 0 0 auto;
-    color: #087f8c
+    color: var(--color-primary)
 }
 
 .appointment-card-footer {
@@ -2464,8 +2567,8 @@ footer {
     .stats {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 18px 12px;
-        margin-top: 32px
+        gap: 16px 12px;
+        margin-top: 26px
     }
     .stats b {
         font-size: 21px

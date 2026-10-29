@@ -4,8 +4,8 @@
     "description": "Doctors, hospitals and emergency contacts in Khammam.",
     "start_url": "/",
     "display": "standalone",
-    "background_color": "#f5f8fc",
-    "theme_color": "#087fdb",
+    "background_color": "#f7faf9",
+    "theme_color": "#1769e0",
     "icons": [
         {
             "src": "/me.jpg",

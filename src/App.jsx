@@ -117,7 +117,7 @@ const downloadReceipt = (receipt) => {
   context.shadowOffsetY = 0;
 
   roundedRect(50, 45, 1100, 235, 28);
-  context.fillStyle = '#087f8c';
+  context.fillStyle = '#1769e0';
   context.fill();
   context.fillRect(50, 200, 1100, 80);
 
@@ -139,14 +139,14 @@ const downloadReceipt = (receipt) => {
   context.fillStyle = '#effafa';
   context.fill();
   context.setLineDash([9, 7]);
-  context.strokeStyle = '#087f8c';
+  context.strokeStyle = '#1769e0';
   context.lineWidth = 2;
   context.stroke();
   context.setLineDash([]);
   context.fillStyle = '#71828a';
   context.font = '700 17px Arial, sans-serif';
   context.fillText('APPOINTMENT TOKEN', 140, 370);
-  context.fillStyle = '#087f8c';
+  context.fillStyle = '#1769e0';
   context.font = '700 39px Arial, sans-serif';
   context.fillText(String(receipt.token || '-'), 140, 425);
 
@@ -168,7 +168,7 @@ const downloadReceipt = (receipt) => {
   context.font = '20px Arial, sans-serif';
   context.fillText(`Total paid · ${receipt.payment || 'Demo'}`, 120, 830);
   context.textAlign = 'right';
-  context.fillStyle = '#087f8c';
+  context.fillStyle = '#1769e0';
   context.font = '700 34px Arial, sans-serif';
   context.fillText(`₹${receipt.amount || 0}.00`, 1080, 835);
   context.textAlign = 'left';

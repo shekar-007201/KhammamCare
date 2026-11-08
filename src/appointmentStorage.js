@@ -1,83 +1,60 @@
-const APPOINTMENTS_KEY = 'khammamcare-appointments';
-const PAYMENTS_KEY = 'khammamcare-payments';
-const CHANGE_EVENT = 'khammamcare:storage-change';
+import {
+    collection,
+    doc,
+    onSnapshot,
+    query,
+    serverTimestamp,
+    updateDoc,
+    where,
+    writeBatch,
+} from 'firebase/firestore';
+import { db } from './firebase.js';
 
-function readCollection(key) {
-    if (typeof window === 'undefined') return [];
-
-    try {
-        const records = JSON.parse(window.localStorage.getItem(key) || '[]');
-        return Array.isArray(records) ? records.filter(Boolean) : [];
-    } catch {
-        return [];
-    }
+function subscribeToQuery(appointmentQuery, callback, onError) {
+    return onSnapshot(
+        appointmentQuery,
+        snapshot => callback(snapshot.docs.map(appointment => ({
+            ...appointment.data(),
+            id: appointment.id,
+        }))),
+        onError || (error => console.error('Appointment subscription failed:', error)),
+    );
 }
 
-function writeCollection(key, records) {
-    const normalized = Array.isArray(records) ? records.filter(Boolean) : [];
-    window.localStorage.setItem(key, JSON.stringify(normalized));
-    window.dispatchEvent(new CustomEvent(CHANGE_EVENT, { detail: { key } }));
-    return normalized;
-}
+export function createBooking(appointment, payment) {
+    const appointmentRef = doc(collection(db, 'appointments'));
+    const paymentRef = doc(collection(db, 'payments'));
+    const batch = writeBatch(db);
 
-function subscribeToCollection(key, callback, filter = () => true) {
-    if (typeof window === 'undefined') {
-        callback([]);
-        return () => {};
-    }
-
-    const refresh = () => callback(readCollection(key).filter(filter));
-    const handleStorage = event => {
-        if (event.key === key || event.key === null) refresh();
-    };
-    const handleLocalChange = event => {
-        if (event.detail && event.detail.key === key) refresh();
-    };
-
-    window.addEventListener('storage', handleStorage);
-    window.addEventListener(CHANGE_EVENT, handleLocalChange);
-    refresh();
-
-    return () => {
-        window.removeEventListener('storage', handleStorage);
-        window.removeEventListener(CHANGE_EVENT, handleLocalChange);
-    };
-}
-
-export function createAppointment(appointment) {
-    const saved = {
-        ...appointment,
-        id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    };
-    writeCollection(APPOINTMENTS_KEY, [...readCollection(APPOINTMENTS_KEY), saved]);
-    return saved;
-}
-
-export function createPaymentRecord(payment) {
-    const saved = {
+    batch.set(appointmentRef, appointment);
+    batch.set(paymentRef, {
         ...payment,
-        id: `local-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-    };
-    writeCollection(PAYMENTS_KEY, [...readCollection(PAYMENTS_KEY), saved]);
-    return saved;
+        createdAt: serverTimestamp(),
+    });
+
+    return batch.commit().then(() => ({
+        ...appointment,
+        id: appointmentRef.id,
+    }));
 }
 
-export function subscribeToAppointments(uid, callback) {
+export function subscribeToAppointments(uid, callback, onError) {
     if (!uid) {
         callback([]);
         return () => {};
     }
 
-    return subscribeToCollection(APPOINTMENTS_KEY, callback, appointment => appointment.uid === uid);
+    return subscribeToQuery(
+        query(collection(db, 'appointments'), where('uid', '==', uid)),
+        callback,
+        onError,
+    );
 }
 
-export function subscribeToAllAppointments(callback) {
-    return subscribeToCollection(APPOINTMENTS_KEY, callback);
+export function subscribeToAllAppointments(callback, onError) {
+    return subscribeToQuery(collection(db, 'appointments'), callback, onError);
 }
 
 export function updateAppointment(id, changes) {
-    const appointments = readCollection(APPOINTMENTS_KEY).map(appointment =>
-        appointment.id === id ? {...appointment, ...changes } : appointment,
-    );
-    return writeCollection(APPOINTMENTS_KEY, appointments);
+    return updateDoc(doc(db, 'appointments', id), changes);
 }

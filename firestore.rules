@@ -5,17 +5,33 @@ service cloud.firestore {
     return request.auth != null;
   }
 
-  function isAdmin() {
-    return isSignedIn() && request.auth.token.admin == true;
-  }
-
   match /databases/{database}/documents {
+    function isAdmin() {
+      return isSignedIn()
+        && request.auth.token.admin == true
+        && get(/databases/$(database)/documents/privateConfig/admin).data.uid == request.auth.uid;
+    }
+
+    match /privateConfig/{configId} {
+      allow read, write: if false;
+    }
+
     match /users/{userId} {
       allow create: if request.auth != null
-        && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'createdAt'])
-        && request.resource.data.keys().hasAll(['uid', 'name', 'email', 'createdAt'])
-        && request.resource.data.uid == request.auth.uid;
-      allow read, update, delete: if false;
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'role', 'createdAt'])
+        && request.resource.data.keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.role == 'patient';
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.role == 'patient'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'name', 'email', 'updatedAt'
+        ]);
+      allow delete: if false;
     }
 
     match /payments/{paymentId} {
@@ -50,7 +66,22 @@ service cloud.firestore {
 
     match /appointments/{appointmentId} {
       allow create: if isSignedIn()
-        && request.resource.data.uid == request.auth.uid;
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'uid', 'name', 'phone', 'age', 'hospital', 'doctor', 'date', 'time',
+          'reason', 'amount', 'paymentMode', 'paymentStatus', 'payment',
+          'paymentProvider', 'token', 'status', 'createdAt', 'bookedAt', 'userEmail'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid', 'name', 'phone', 'age', 'hospital', 'doctor', 'date', 'time',
+          'amount', 'paymentMode', 'paymentStatus', 'payment',
+          'paymentProvider', 'token', 'status', 'createdAt', 'bookedAt', 'userEmail'
+        ])
+        && request.resource.data.status == 'confirmed'
+        && request.resource.data.amount == 399
+        && request.resource.data.paymentMode in ['UPI', 'Card', 'Net Banking']
+        && request.resource.data.paymentStatus == 'demo-paid'
+        && request.resource.data.paymentProvider == 'demo';
 
       allow read: if isAdmin()
         || (isSignedIn() && resource.data.uid == request.auth.uid);

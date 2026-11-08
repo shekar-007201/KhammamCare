@@ -2,13 +2,12 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   CalendarCheck,
-  CreditCard,
-  LogIn,
+  Eye,
+  EyeOff,
   LogOut,
-  Landmark,
   Pencil,
   Save,
-  Smartphone,
+  ShieldCheck,
   Stethoscope,
   X,
   UserRound,
@@ -22,14 +21,19 @@ import {
   updateProfile,
 } from 'firebase/auth';
 import { useDirectory } from './useDirectory.js';
-import { auth } from './firebase.js';
+import { auth, db, persistAuthSession } from './firebase.js';
 import {
-  createAppointment,
-  createPaymentRecord,
-  subscribeToAllAppointments,
+  doc,
+  getDoc,
+  setDoc,
+  serverTimestamp,
+} from 'firebase/firestore';
+import {
+  subscribeToAppointments,
 } from './appointmentStorage.js';
-import { getLocalDateValue, validateAppointment } from './validation.js';
+import { BOOKING_DRAFT_KEY } from './bookingConstants.js';
 import profilePhoto from '../me.jpg';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 const initials = (name) =>
   name
@@ -44,8 +48,6 @@ const maps = (name) =>
   `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
     name + ' Khammam',
   )}`;
-
-const APPOINTMENT_FEE = 399;
 
 const translations = {
   en: {
@@ -210,21 +212,6 @@ const hospitalPhotos = [
   'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=900&q=80',
 ];
 
-const timeSlots = [
-  '09:00 AM',
-  '09:30 AM',
-  '10:00 AM',
-  '10:30 AM',
-  '11:00 AM',
-  '11:30 AM',
-  '12:00 PM',
-  '01:00 PM',
-  '02:00 PM',
-  '03:00 PM',
-  '04:00 PM',
-  '05:00 PM',
-];
-
 const doctorPhotos = [
   'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=500&q=80',
   'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&w=500&q=80',
@@ -264,6 +251,8 @@ class ErrorBoundary extends React.Component {
 }
 
 function AppContent() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
   const {
     doctors,
     hospitals,
@@ -279,14 +268,16 @@ function AppContent() {
   const [openNow, setOpenNow] = useState(false);
   const [shown, setShown] = useState(24);
   const [menu, setMenu] = useState(false);
-  const [loginOpen, setLoginOpen] = useState(false);
+  const [patientLoginOpen, setPatientLoginOpen] = useState(false);
   const [loginMode, setLoginMode] = useState('sign-in');
   const [loginName, setLoginName] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginPasswordVisible, setLoginPasswordVisible] = useState(false);
   const [loginError, setLoginError] = useState('');
   const [loginNotice, setLoginNotice] = useState('');
   const [authUser, setAuthUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileEditing, setProfileEditing] = useState(false);
@@ -294,36 +285,81 @@ function AppContent() {
   const [profileError, setProfileError] = useState('');
   const [profileNotice, setProfileNotice] = useState('');
   const [profileBusy, setProfileBusy] = useState(false);
-  const [selectedHospital, setSelectedHospital] = useState('');
   const [selectedDoctor, setSelectedDoctor] = useState('');
-
-  const [payment, setPayment] = useState(null);
-  const [checkoutPending, setCheckoutPending] = useState(false);
-  const [paymentMode, setPaymentMode] = useState('UPI');
-  const [paymentInput, setPaymentInput] = useState('');
-  const [paymentError, setPaymentError] = useState('');
-  const [success, setSuccess] = useState(null);
-  const [saving, setSaving] = useState(false);
-
-  const [form, setForm] = useState({
-    name: '',
-    phone: '',
-    age: '',
-    hospital: '',
-    doctor: '',
-    date: '',
-    time: '',
-    reason: '',
-  });
-
+  const [returnToAfterLogin, setReturnToAfterLogin] = useState('');
+  const [bookingNavigationError, setBookingNavigationError] = useState('');
   const [appointments, setAppointments] = useState([]);
-  const [bookingError, setBookingError] = useState('');
 
   const t = (key) => translations.en[key];
 
-  useEffect(() => onAuthStateChanged(auth, setAuthUser), []);
+  useEffect(() => {
+    let active = true;
+    let unsubscribe;
 
-  useEffect(() => subscribeToAllAppointments(setAppointments), []);
+    auth.authStateReady()
+      .then(() => {
+        if (!active) return;
+        setAuthUser(auth.currentUser);
+        setAuthReady(true);
+        unsubscribe = onAuthStateChanged(auth, user => {
+          if (!active) return;
+          setAuthUser(user);
+          setAuthReady(true);
+        });
+      })
+      .catch(error => {
+        console.error('Could not restore the Firebase session:', error);
+        if (active) setAuthReady(true);
+      });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!authUser) {
+      setAppointments([]);
+      return undefined;
+    }
+
+    return subscribeToAppointments(
+      authUser.uid,
+      setAppointments,
+      error => console.error('Could not load patient appointments:', error),
+    );
+  }, [authUser?.uid]);
+
+  useEffect(() => {
+    if (!authReady) return;
+    if (searchParams.get('login') !== 'patient') return;
+    const returnTo = searchParams.get('returnTo');
+    const safeReturnTo = returnTo === '/patient/details' || returnTo === '/patient/payment'
+      ? returnTo
+      : '';
+
+    if (authUser) {
+      if (safeReturnTo) navigate(safeReturnTo, { replace: true });
+      setSearchParams(currentParams => {
+        currentParams.delete('login');
+        currentParams.delete('returnTo');
+        return currentParams;
+      }, { replace: true });
+      return;
+    }
+
+    if (safeReturnTo) {
+      setReturnToAfterLogin(returnTo);
+    }
+    setLoginMode('sign-in');
+    setPatientLoginOpen(true);
+    setSearchParams((currentParams) => {
+      currentParams.delete('login');
+      currentParams.delete('returnTo');
+      return currentParams;
+    }, { replace: true });
+  }, [authReady, authUser, navigate, searchParams, setSearchParams]);
 
   const handleLoginSubmit = async (event) => {
     event.preventDefault();
@@ -332,23 +368,63 @@ function AppContent() {
     setAuthBusy(true);
 
     try {
+      await persistAuthSession();
+      let credential;
+
       if (loginMode === 'create-account') {
-        const credential = await createUserWithEmailAndPassword(auth, loginEmail, loginPassword);
+        credential = await createUserWithEmailAndPassword(
+          auth,
+          loginEmail.trim(),
+          loginPassword,
+        );
+
         const name = loginName.trim();
+
         await updateProfile(credential.user, { displayName: name });
+
+        // Create a Firestore profile for the newly registered patient.
+        await setDoc(doc(db, 'users', credential.user.uid), {
+          uid: credential.user.uid,
+          name,
+          email: credential.user.email,
+          role: 'patient',
+          createdAt: serverTimestamp(),
+        });
+
         setAuthUser({ ...credential.user, displayName: name });
       } else {
-        await signInWithEmailAndPassword(auth, loginEmail, loginPassword);
+        credential = await signInWithEmailAndPassword(
+          auth,
+          loginEmail.trim(),
+          loginPassword,
+        );
+
+        // Backfill a profile for an existing account if it does not exist yet.
+        const userRef = doc(db, 'users', credential.user.uid);
+        const userSnapshot = await getDoc(userRef);
+
+        if (!userSnapshot.exists()) {
+          await setDoc(userRef, {
+            uid: credential.user.uid,
+            name: credential.user.displayName || '',
+            email: credential.user.email,
+            role: 'patient',
+            createdAt: serverTimestamp(),
+          });
+        }
       }
-      setLoginOpen(false);
+
+      setAuthUser(credential.user);
+      setPatientLoginOpen(false);
       setLoginPassword('');
-      if (checkoutPending) {
-        setCheckoutPending(false);
-        setPayment(true);
+      setLoginPasswordVisible(false);
+      if (returnToAfterLogin) {
+        navigate(returnToAfterLogin);
+        setReturnToAfterLogin('');
       }
     } catch (error) {
       console.error('Firebase login error:', error.code, error.message);
-      setLoginError(`${error.code}: ${error.message}`);
+      setLoginError(`${error.code || 'error'}: ${error.message}`);
     } finally {
       setAuthBusy(false);
     }
@@ -379,7 +455,11 @@ function AppContent() {
     if (!authUser) {
       setLoginError('');
       setLoginMode('sign-in');
-      setLoginOpen(true);
+      setPatientLoginOpen(true);
+      requestAnimationFrame(() => {
+        document.querySelector('#patient-login')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        document.querySelector('#login-email')?.focus({ preventScroll: true });
+      });
       return;
     }
 
@@ -402,6 +482,19 @@ function AppContent() {
     setProfileNotice('');
     try {
       await updateProfile(auth.currentUser, { displayName: name });
+
+      // Keep the Firestore profile in sync with the Firebase Auth profile.
+      await setDoc(
+        doc(db, 'users', auth.currentUser.uid),
+        {
+          uid: auth.currentUser.uid,
+          name,
+          email: auth.currentUser.email,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true },
+      );
+
       setAuthUser({ ...auth.currentUser, displayName: name });
       setProfileName(name);
       setProfileEditing(false);
@@ -434,8 +527,10 @@ function AppContent() {
     try {
       await signOut(auth);
       setProfileOpen(false);
+      navigate('/');
     } catch (error) {
       setProfileError(error.message || 'Could not sign out. Please try again.');
+      setProfileOpen(true);
     } finally {
       setProfileBusy(false);
     }
@@ -524,15 +619,60 @@ function AppContent() {
     </div>
   );
 
-  const reservedSlots = useMemo(
-    () => appointments
-      .filter(appointment =>
-        appointment.doctor === form.doctor &&
-        appointment.date === form.date &&
-        !['canceled', 'Rejected'].includes(appointment.status),
-      )
-      .map(appointment => appointment.time),
-    [appointments, form.doctor, form.date],
+  const patientLoginForm = (
+    <form className="login-form" onSubmit={handleLoginSubmit}>
+      {loginMode === 'create-account' && (
+        <>
+          <label htmlFor="login-name">Your name</label>
+          <input
+            id="login-name"
+            type="text"
+            autoComplete="name"
+            maxLength={60}
+            required
+            value={loginName}
+            onChange={(event) => setLoginName(event.target.value)}
+          />
+        </>
+      )}
+      <label htmlFor="login-email">Email</label>
+      <input
+        id="login-email"
+        type="email"
+        autoComplete="email"
+        required
+        value={loginEmail}
+        onChange={(event) => setLoginEmail(event.target.value)}
+      />
+      <label htmlFor="login-password">Password</label>
+      <div className="password-input-wrap">
+        <input
+          id="login-password"
+          type={loginPasswordVisible ? 'text' : 'password'}
+          autoComplete={loginMode === 'create-account' ? 'new-password' : 'current-password'}
+          minLength={6}
+          required
+          value={loginPassword}
+          onChange={(event) => setLoginPassword(event.target.value)}
+        />
+        <button
+          type="button"
+          className="password-visibility-toggle"
+          aria-label={loginPasswordVisible ? 'Hide password' : 'Show password'}
+          aria-controls="login-password"
+          onClick={() => setLoginPasswordVisible(visible => !visible)}
+        >
+          {loginPasswordVisible
+            ? <EyeOff size={18} aria-hidden="true" />
+            : <Eye size={18} aria-hidden="true" />}
+          <span>{loginPasswordVisible ? 'Hide' : 'Show'}</span>
+        </button>
+      </div>
+      {loginError && <p className="booking-error" role="alert">{loginError}</p>}
+      <button type="submit" className="primary-btn" disabled={authBusy}>
+        {authBusy ? 'Please wait…' : loginMode === 'create-account' ? 'Create account' : 'Log in'}
+      </button>
+    </form>
   );
 
   const doctorRatings = useMemo(() => {
@@ -568,23 +708,6 @@ function AppContent() {
     [hospitals],
   );
 
-  const availableSpecialities = useMemo(() => {
-    if (!form.hospital) return specialities;
-    return [
-      ...new Set(
-        doctors.filter((d) => d[2] === form.hospital).map((d) => d[1]),
-      ),
-    ].sort();
-  }, [form.hospital, specialities, doctors]);
-
-  const availableDoctors = useMemo(
-    () =>
-      doctors
-        .filter((d) => !form.hospital || d[2] === form.hospital)
-        .sort((first, second) => first[0].localeCompare(second[0])),
-    [form.hospital, doctors],
-  );
-
   const filtered = useMemo(
     () =>
       doctors.filter((d) => {
@@ -612,192 +735,28 @@ function AppContent() {
   );
 
   const visible = filtered.slice(0, shown);
-  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  const openBooking = (defaults = {}) => {
+    setBookingNavigationError('');
+    try {
+      const savedDraft = sessionStorage.getItem(BOOKING_DRAFT_KEY);
+      const draft = savedDraft ? JSON.parse(savedDraft) : {};
+      sessionStorage.setItem(BOOKING_DRAFT_KEY, JSON.stringify({ ...draft, ...defaults }));
+      navigate('/patient/details');
+    } catch (error) {
+      console.error('Could not prepare appointment details:', error);
+      setBookingNavigationError('Could not open appointment details. Check your browser storage and try again.');
+    }
+  };
 
   const chooseHospital = (hospital) => {
-    setSelectedHospital(hospital);
-    update('hospital', hospital);
-    document
-      .querySelector('#appointment')
-      ?.scrollIntoView({ behavior: 'smooth' });
+    openBooking({ hospital, doctor: '' });
   };
 
   const chooseDoctor = (doctor, hospital) => {
     setSelectedDoctor(doctor);
-    update('doctor', doctor);
-    update('hospital', hospital);
-    document
-      .querySelector('#appointment')
-      ?.scrollIntoView({ behavior: 'smooth' });
+    openBooking({ hospital, doctor });
   };
-
-  const submit = (event) => {
-    event.preventDefault();
-
-    const validationError = validateAppointment(form);
-
-    if (validationError) {
-      setBookingError(validationError);
-      return;
-    }
-
-    setBookingError('');
-    setPaymentError('');
-
-    if (!authUser) {
-      setCheckoutPending(true);
-      setLoginMode('sign-in');
-      setLoginError('');
-      setLoginNotice('Sign in to continue to payment.');
-      setLoginOpen(true);
-      return;
-    }
-
-    setPayment(true);
-  };
-
-  const finish = async () => {
-    setPaymentError('');
-
-    if (!authUser) {
-      setPayment(false);
-      setCheckoutPending(true);
-      setLoginMode('sign-in');
-      setLoginNotice('Sign in to continue to payment.');
-      setLoginOpen(true);
-      return;
-    }
-
-    setSaving(true);
-
-    const token = 'KHM-' + Math.floor(1000 + Math.random() * 9000);
-
-    try {
-      const conflict = appointments.some(appointment =>
-        appointment.doctor === form.doctor &&
-        appointment.date === form.date &&
-        appointment.time === form.time &&
-        !['canceled', 'Rejected'].includes(appointment.status),
-      );
-
-      if (conflict) {
-        setPaymentError('This time slot is already booked. Choose another slot.');
-        return;
-      }
-
-      const bookedAt = new Date().toISOString();
-      const appointment = {
-        ...form,
-        amount: APPOINTMENT_FEE,
-        paymentMode,
-        paymentStatus: 'demo-paid',
-        payment: `${paymentMode} (demo)`,
-        token,
-        status: 'confirmed',
-        paymentProvider: 'demo',
-        createdAt: bookedAt,
-        bookedAt,
-        userEmail: authUser.email || '',
-      };
-
-      const savedAppointment = createAppointment({
-        ...appointment,
-        uid: authUser.uid,
-      });
-
-      createPaymentRecord({
-        uid: authUser.uid,
-        appointmentToken: token,
-        amount: APPOINTMENT_FEE,
-        paymentMode,
-        paymentStatus: 'demo-paid',
-        paymentProvider: 'demo',
-        createdAt: bookedAt,
-      });
-
-      setPayment(false);
-      setSuccess(savedAppointment);
-
-      setForm({
-        name: '',
-        phone: '',
-        age: '',
-        hospital: '',
-        doctor: '',
-        date: '',
-        time: '',
-        reason: '',
-      });
-      setPaymentInput('');
-      setPaymentMode('UPI');
-    } catch (error) {
-      console.error(error);
-      setPaymentError(`Could not save the appointment or demo payment record: ${error.message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (success) {
-    return (
-      <main className="receipt-page">
-        <section className="receipt success receipt-card">
-          <div className="receipt-header">
-            <div>
-              <div className="eyebrow">APPOINTMENT CONFIRMED</div>
-              <h1>Payment receipt</h1>
-            </div>
-            <div className="success-icon" aria-label="Payment confirmed">✓</div>
-          </div>
-
-          <div className="receipt-token">
-            <small>APPOINTMENT TOKEN</small>
-            <strong>{success.token}</strong>
-          </div>
-
-          <div className="receipt-details">
-            <div>
-              <span>Patient</span>
-              <b>{success.name}</b>
-              <small>Age {success.age} · {success.phone}</small>
-            </div>
-            <div><span>Doctor</span><b>{success.doctor}</b></div>
-            <div><span>Hospital</span><b>{success.hospital}</b></div>
-            <div>
-              <span>Appointment</span>
-              <b>{success.date} at {success.time}</b>
-            </div>
-          </div>
-
-          <div className="receipt-total">
-            <span>Total paid · {success.payment}</span>
-            <b>₹{success.amount}.00</b>
-          </div>
-
-          <p className="receipt-note">
-            Keep this token for your hospital visit. This is a demo payment receipt.
-          </p>
-
-          <div className="receipt-actions">
-            <button
-              type="button"
-              className="secondary-btn"
-              onClick={() => setSuccess(null)}
-            >
-              Back to home
-            </button>
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={() => downloadReceipt(success)}
-            >
-              Download receipt card
-            </button>
-          </div>
-        </section>
-      </main>
-    );
-  }
 
   if (directoryLoading) {
     return (
@@ -805,162 +764,6 @@ function AppContent() {
         <div className="admin-empty">
           <span className="loading-spinner" />
           Loading the Khammam directory...
-        </div>
-      </main>
-    );
-  }
-
-  if (payment) {
-    return (
-      <main className="checkout-page">
-        <header className="checkout-header">
-          <a className="brand" href="#home">
-            <span className="brand-icon">✚</span>
-            <span>
-              Khammam<span>Care</span>
-              <small>Doctors &amp; Hospitals</small>
-            </span>
-          </a>
-          <button
-            type="button"
-            className="secondary-btn"
-            onClick={() => {
-              setPayment(false);
-              setPaymentError('');
-            }}
-          >
-            Back to appointment
-          </button>
-        </header>
-
-        <div className="checkout-title">
-          <div className="eyebrow">SECURE CHECKOUT • DEMO</div>
-          <h1>Choose a payment method</h1>
-          <p>No real payment will be processed or charged.</p>
-        </div>
-
-        <div className="checkout-layout">
-          <section className="checkout-card">
-            <h2>Payment method</h2>
-            <div className="pay-options">
-              {[
-                { name: 'UPI', Icon: Smartphone },
-                { name: 'Card', Icon: CreditCard },
-                { name: 'Net Banking', Icon: Landmark },
-              ].map(({ name, Icon }) => (
-                <button
-                  key={name}
-                  type="button"
-                  className={paymentMode === name ? 'active' : ''}
-                  aria-pressed={paymentMode === name}
-                  onClick={() => {
-                    setPaymentMode(name);
-                    setPaymentInput('');
-                    setPaymentError('');
-                  }}
-                >
-                  <Icon aria-hidden="true" />
-                  <span>{name}</span>
-                </button>
-              ))}
-            </div>
-
-            {paymentMode === 'UPI' && (
-              <label className="checkout-field">
-                UPI ID <span>(demo)</span>
-                <input
-                  className="payment-input"
-                  placeholder="name@bank"
-                  autoComplete="off"
-                  value={paymentInput}
-                  onChange={(event) => setPaymentInput(event.target.value)}
-                />
-              </label>
-            )}
-
-            {paymentMode === 'Card' && (
-              <div className="payment-fields checkout-card-fields">
-                <label className="checkout-field">
-                  Card number <span>(demo)</span>
-                  <input
-                    className="payment-input"
-                    placeholder="1234 5678 9012 3456"
-                    inputMode="numeric"
-                    autoComplete="off"
-                    value={paymentInput}
-                    onChange={(event) =>
-                      setPaymentInput(
-                        event.target.value.replace(/\D/g, '').slice(0, 16),
-                      )
-                    }
-                  />
-                </label>
-                <div className="form-row">
-                  <label className="checkout-field">
-                    Expiry <span>(demo)</span>
-                    <input placeholder="MM/YY" autoComplete="off" />
-                  </label>
-                  <label className="checkout-field">
-                    CVV <span>(demo)</span>
-                    <input
-                      placeholder="123"
-                      type="password"
-                      inputMode="numeric"
-                      maxLength="3"
-                      autoComplete="off"
-                    />
-                  </label>
-                </div>
-              </div>
-            )}
-
-            {paymentMode === 'Net Banking' && (
-              <label className="checkout-field">
-                Select bank <span>(demo)</span>
-                <select
-                  className="payment-input"
-                  value={paymentInput}
-                  onChange={(event) => setPaymentInput(event.target.value)}
-                >
-                  <option value="">Choose a bank</option>
-                  <option>State Bank of India</option>
-                  <option>HDFC Bank</option>
-                  <option>ICICI Bank</option>
-                  <option>Axis Bank</option>
-                </select>
-              </label>
-            )}
-
-            {paymentError && (
-              <div className="admin-error" role="alert">{paymentError}</div>
-            )}
-
-            <button
-              type="button"
-              className="primary-btn full checkout-submit"
-              onClick={finish}
-              disabled={saving}
-            >
-              {saving
-                ? 'Confirming appointment...'
-                : `Confirm demo payment · ₹${APPOINTMENT_FEE}`}
-            </button>
-          </section>
-
-          <aside className="checkout-card checkout-summary">
-            <h2>Appointment summary</h2>
-            <dl>
-              <div><dt>Patient</dt><dd>{form.name}</dd></div>
-              <div><dt>Doctor</dt><dd>{form.doctor}</dd></div>
-              <div><dt>Hospital</dt><dd>{form.hospital}</dd></div>
-              <div><dt>Date and time</dt><dd>{form.date} · {form.time}</dd></div>
-            </dl>
-            <div className="checkout-total">
-              <span>Total <small>(demo)</small></span>
-              <strong>₹{APPOINTMENT_FEE}</strong>
-            </div>
-            <p className="checkout-disclaimer">This is a demonstration checkout. No real payment will be charged.</p>
-          </aside>
         </div>
       </main>
     );
@@ -978,6 +781,49 @@ function AppContent() {
             </span>
           </a>
 
+          <nav id="main-navigation" className={menu ? 'open' : ''}>
+            <a href="#home" onClick={() => setMenu(false)}>{t('home')}</a>
+            <a href="#hospitals" onClick={() => setMenu(false)}>{t('hospitals')}</a>
+            <a href="#doctors" onClick={() => setMenu(false)}>{t('doctors')}</a>
+            <a
+              href="#appointment"
+              onClick={(event) => {
+                event.preventDefault();
+                setMenu(false);
+                openBooking();
+              }}
+            >
+              {t('appointment')}
+            </a>
+            <a href="#about" onClick={() => setMenu(false)}>{t('about')}            </a>
+          </nav>
+
+          <div className="nav-actions">
+            <button
+              type="button"
+              className="secondary-btn header-login-button"
+              onClick={handleAuthButton}
+            >
+              <UserRound size={16} aria-hidden="true" />
+              <span className="header-login-label">
+                {authUser ? authUser.displayName || 'My account' : 'Login'}
+              </span>
+            </button>
+            {authUser && (
+              <button
+                type="button"
+                className="secondary-btn header-logout-button"
+                onClick={handleProfileSignOut}
+                disabled={profileBusy}
+                aria-label="Log out"
+                title="Log out"
+              >
+                <LogOut size={16} aria-hidden="true" />
+                <span>Log out</span>
+              </button>
+            )}
+          </div>
+
           <button
             type="button"
             className="menu-btn"
@@ -988,39 +834,6 @@ function AppContent() {
           >
             {menu ? '×' : '☰'}
           </button>
-
-          <nav id="main-navigation" className={menu ? 'open' : ''}>
-            <a href="#home" onClick={() => setMenu(false)}>{t('home')}</a>
-            <a href="#hospitals" onClick={() => setMenu(false)}>{t('hospitals')}</a>
-            <a href="#doctors" onClick={() => setMenu(false)}>{t('doctors')}</a>
-            <a
-              href="#appointment"
-              onClick={(event) => {
-                event.preventDefault();
-                setMenu(false);
-                document
-                  .querySelector('#appointment')
-                  ?.scrollIntoView({ behavior: 'smooth' });
-              }}
-            >
-              {t('appointment')}
-            </a>
-            <a href="#about" onClick={() => setMenu(false)}>{t('about')}</a>
-            <a href="/appointments" onClick={() => setMenu(false)}>{t('myAppointments')}</a>
-          </nav>
-          <button
-            type="button"
-            className="outline-btn header-login-button"
-            onClick={handleAuthButton}
-            disabled={authBusy}
-            aria-label={authUser ? `Open profile for ${authUser.displayName || authUser.email}` : 'Log in'}
-            title={authUser ? 'Open profile' : 'Log in'}
-          >
-            {authUser ? <UserRound size={16} aria-hidden="true" /> : <LogIn size={16} aria-hidden="true" />}
-            <span className="header-login-label">
-              {authUser ? authUser.displayName || authUser.email?.split('@')[0] : 'Log in'}
-            </span>
-          </button>
         </div>
       </header>
 
@@ -1030,6 +843,104 @@ function AppContent() {
             {directoryError}
           </div>
         )}
+
+        <section className="portal-section" id="portals">
+          <div className="container">
+            <div className="portal-heading">
+              <div className="eyebrow">KHAMMAMCARE PORTALS</div>
+              <h2>Choose your account</h2>
+              <p>Sign in to the right portal to continue.</p>
+            </div>
+            <div className="portal-grid">
+              <Link className="portal-card portal-admin-card" to="/admin/login">
+                <span className="portal-icon"><ShieldCheck aria-hidden="true" /></span>
+                <span className="portal-card-copy">
+                  <strong>Admin Login</strong>
+                  <span>Manage appointments and hospital services.</span>
+                  <b>Login as Admin <span aria-hidden="true">→</span></b>
+                </span>
+              </Link>
+              <Link className="portal-card portal-doctor-card" to="/doctor/login">
+                <span className="portal-icon"><Stethoscope aria-hidden="true" /></span>
+                <span className="portal-card-copy">
+                  <strong>Doctor Login</strong>
+                  <span>Sign in to your verified doctor account.</span>
+                  <b>Login as Doctor <span aria-hidden="true">→</span></b>
+                </span>
+              </Link>
+              {authUser ? (
+                <Link className="portal-card portal-patient-card" to="/appointments">
+                  <span className="portal-icon"><UserRound aria-hidden="true" /></span>
+                  <span className="portal-card-copy">
+                    <strong>Patient Account</strong>
+                    <span>View and manage your appointments.</span>
+                    <b>My Appointments <span aria-hidden="true">→</span></b>
+                  </span>
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  className="portal-card portal-patient-card"
+                  onClick={() => {
+                    setLoginMode('sign-in');
+                    setLoginError('');
+                    setPatientLoginOpen(value => !value);
+                  }}
+                  aria-expanded={patientLoginOpen}
+                  aria-controls="patient-login"
+                >
+                  <span className="portal-icon"><UserRound aria-hidden="true" /></span>
+                  <span className="portal-card-copy">
+                    <strong>Patient Login</strong>
+                    <span>Book visits and manage your healthcare appointments.</span>
+                    <b>{patientLoginOpen ? <>Close Login <span aria-hidden="true">↑</span></> : <>Login <span aria-hidden="true">→</span></>}</b>
+                  </span>
+                </button>
+              )}
+            </div>
+
+            {patientLoginOpen && !authUser && (
+              <section className="patient-inline-login" id="patient-login" aria-labelledby="patient-login-title">
+                <div className="patient-inline-login-copy">
+                  <div className="eyebrow">PATIENT ACCOUNT</div>
+                  <h3 id="patient-login-title">
+                    {loginMode === 'create-account' ? 'Create your patient account' : 'Welcome back'}
+                  </h3>
+                  <p>
+                    {loginMode === 'create-account'
+                      ? 'Register to book and manage appointments.'
+                      : 'Sign in to book a visit or view your appointments.'}
+                  </p>
+                </div>
+                {patientLoginForm}
+                <div className="patient-inline-login-actions">
+                  <button
+                    type="button"
+                    className="auth-mode-toggle"
+                    onClick={() => {
+                      setLoginMode(loginMode === 'sign-in' ? 'create-account' : 'sign-in');
+                      setLoginError('');
+                      setLoginPasswordVisible(false);
+                    }}
+                  >
+                    {loginMode === 'create-account' ? 'Already have an account? Log in' : 'Create an account'}
+                  </button>
+                  {loginMode === 'sign-in' && (
+                    <button
+                      type="button"
+                      className="auth-mode-toggle password-reset-button"
+                      onClick={handlePasswordReset}
+                      disabled={authBusy}
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                  {loginNotice && <p className="login-notice" role="status">{loginNotice}</p>}
+                </div>
+              </section>
+            )}
+          </div>
+        </section>
 
         <section className="section emergency-section" id="emergency">
           <div className="container">
@@ -1080,9 +991,7 @@ function AppContent() {
                   href="#appointment"
                   onClick={(event) => {
                     event.preventDefault();
-                    document
-                      .querySelector('#appointment')
-                      ?.scrollIntoView({ behavior: 'smooth' });
+                    openBooking();
                   }}
                 >
                   Appointment
@@ -1363,183 +1272,22 @@ function AppContent() {
               <h2>Book a consultation with your selected doctor.</h2>
               <p>Book a visit and manage your appointments securely.</p>
               <div className="info-list">
-                <div>✓ No account required</div>
+                <div>✓ Patient account protected</div>
                 <div>✓ Select hospital and doctor</div>
                 <div>✓ Choose date and time</div>
                 <div>✓ Demo payment step</div>
-                <div>✓ Appointment saved on this device</div>
+                <div>✓ Appointment saved securely</div>
               </div>
             </div>
 
-            <form className="form-card" onSubmit={submit}>
-              <div className="form-row">
-                <div>
-                  <label>Patient name</label>
-                  <input
-                    value={form.name}
-                    onChange={(e) => update('name', e.target.value)}
-                    required
-                  />
-                </div>
-                <div>
-                  <label>Phone</label>
-                  <input
-                    value={form.phone}
-                    onChange={(e) =>
-                      update(
-                        'phone',
-                        e.target.value.replace(/\D/g, '').slice(0, 10),
-                      )
-                    }
-                    pattern="[0-9]{10}"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div>
-                  <label>Patient age</label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="120"
-                    value={form.age}
-                    onChange={(e) => update('age', e.target.value)}
-                    placeholder="e.g. 32"
-                    required
-                  />
-                </div>
-                <div>
-                  <label>Hospital</label>
-                  <select
-                    value={form.hospital}
-                    onChange={(e) => {
-                      const hospital = e.target.value;
-                      update('hospital', hospital);
-
-                      if (
-                        form.doctor &&
-                        !doctors.some(
-                          (doctor) =>
-                            doctor[2] === hospital && doctor[0] === form.doctor,
-                        )
-                      ) {
-                        update('doctor', '');
-                      }
-                    }}
-                    required
-                  >
-                    <option value="">Select hospital</option>
-                    {hospitals.map((hospital) => (
-                      <option key={hospital[0]} value={hospital[0]}>
-                        {hospital[0]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div>
-                  <label>{t('selectDoctor')}</label>
-                  <select
-                    value={form.doctor}
-                    onChange={(e) => {
-                      update('doctor', e.target.value);
-                      update('time', '');
-                    }}
-                    required
-                  >
-                    <option value="">{t('selectDoctor')}</option>
-                    {availableDoctors.map((doctor) => (
-                      <option key={doctor[0]} value={doctor[0]}>
-                        {doctor[0]} · {doctor[1]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label>Date</label>
-                  <input
-                    type="date"
-                    min={getLocalDateValue()}
-                    value={form.date || ''}
-                    onChange={(e) => {
-                      const nextDate = e.target.value;
-                      update('date', /^\d{4}-\d{2}-\d{2}$/.test(nextDate) ? nextDate : '');
-                      update('time', '');
-                    }}
-                    required
-                  />
-                </div>
-              </div>
-
-              <div className="time-slot-picker">
-                <div className="time-slot-heading">
-                  <label>{t('timeSlot')}</label>
-                  {form.time && <span className="selected-time-label">Selected: {form.time}</span>}
-                </div>
-                {!form.doctor || !form.date ? (
-                  <p className="slot-picker-prompt">Choose a doctor and date to see available times.</p>
-                ) : (
-                  <>
-                    <div className="slot-legend" aria-label="Slot availability legend">
-                      <span><i className="slot-legend-mark available" />Available</span>
-                      <span><i className="slot-legend-mark selected" />Selected</span>
-                      <span><i className="slot-legend-mark booked" />Booked</span>
-                    </div>
-                    <div className="time-slot-grid" role="group" aria-label="Appointment time slots">
-                      {timeSlots.map(slot => {
-                        const booked = reservedSlots.includes(slot);
-                        const selected = form.time === slot;
-                        const state = booked ? 'Booked' : selected ? 'Selected' : 'Available';
-
-                        return (
-                          <button
-                            type="button"
-                            key={slot}
-                            className={`time-slot-seat${selected ? ' selected' : ''}${booked ? ' booked' : ''}`}
-                            disabled={booked}
-                            aria-pressed={selected}
-                            aria-label={`${slot}, ${state}`}
-                            onClick={() => update('time', slot)}
-                          >
-                            <span className="slot-seat-time">{slot}</span>
-                            <span className="slot-seat-state">{state}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    {reservedSlots.length === timeSlots.length ? (
-                      <small className="slot-availability-note">No times remain for this doctor on the selected date.</small>
-                    ) : reservedSlots.length > 0 ? (
-                      <small className="slot-availability-note">{reservedSlots.length} time{reservedSlots.length === 1 ? '' : 's'} already booked.</small>
-                    ) : null}
-                  </>
-                )}
-              </div>
-
-              <div>
-                <label>Reason / symptoms</label>
-                <textarea
-                  rows="3"
-                  value={form.reason}
-                  onChange={(e) => update('reason', e.target.value)}
-                  placeholder="Optional"
-                />
-              </div>
-
-              {bookingError && (
-                <p className="booking-error" role="alert">
-                  {bookingError}
-                </p>
-              )}
-
-              <button className="primary-btn full" type="submit">
-                Continue to payment →
+            <div className="form-card booking-start-card">
+              <h3>Ready to book your appointment?</h3>
+              <p>Enter your patient details and visit preferences on the next page, then continue to the separate demo payment page.</p>
+              {bookingNavigationError && <p className="booking-error" role="alert">{bookingNavigationError}</p>}
+              <button className="primary-btn full" type="button" onClick={() => openBooking()}>
+                Enter appointment details →
               </button>
-            </form>
+            </div>
           </div>
         </section>
 
@@ -1576,9 +1324,7 @@ function AppContent() {
                   className="primary-btn"
                   onClick={(event) => {
                     event.preventDefault();
-                    document
-                      .querySelector('#appointment')
-                      ?.scrollIntoView({ behavior: 'smooth' });
+                    openBooking();
                   }}
                 >
                   Book appointment
@@ -1622,90 +1368,6 @@ function AppContent() {
       </footer>
 
       {profileDialog}
-
-      {loginOpen && (
-        <div
-          className="modal show"
-          role="presentation"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setLoginOpen(false);
-          }}
-        >
-          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
-            <button
-              type="button"
-              className="modal-close"
-              aria-label="Close login"
-              onClick={() => setLoginOpen(false)}
-            >
-              <X size={20} aria-hidden="true" />
-            </button>
-            <div className="eyebrow">KHAMMAMCARE ACCOUNT</div>
-            <h2 id="login-title">{loginMode === 'create-account' ? 'Create your account' : 'Welcome back'}</h2>
-            <p>{loginMode === 'create-account' ? 'Create an account to sign in.' : 'Sign in with your email and password.'}</p>
-            <form className="login-form" onSubmit={handleLoginSubmit}>
-              {loginMode === 'create-account' && (
-                <>
-                  <label htmlFor="login-name">Your name</label>
-                  <input
-                    id="login-name"
-                    type="text"
-                    autoComplete="name"
-                    maxLength={60}
-                    required
-                    value={loginName}
-                    onChange={(event) => setLoginName(event.target.value)}
-                  />
-                </>
-              )}
-              <label htmlFor="login-email">Email</label>
-              <input
-                id="login-email"
-                type="email"
-                autoComplete="email"
-                required
-                value={loginEmail}
-                onChange={(event) => setLoginEmail(event.target.value)}
-              />
-              <label htmlFor="login-password">Password</label>
-              <input
-                id="login-password"
-                type="password"
-                autoComplete={loginMode === 'create-account' ? 'new-password' : 'current-password'}
-                minLength={6}
-                required
-                value={loginPassword}
-                onChange={(event) => setLoginPassword(event.target.value)}
-              />
-              {loginError && <p className="booking-error" role="alert">{loginError}</p>}
-              <button type="submit" className="primary-btn" disabled={authBusy}>
-                {authBusy ? 'Please wait…' : loginMode === 'create-account' ? 'Create account' : 'Log in'}
-              </button>
-            </form>
-            <button
-              type="button"
-              className="auth-mode-toggle"
-              onClick={() => {
-                setLoginMode(loginMode === 'sign-in' ? 'create-account' : 'sign-in');
-                setLoginError('');
-              }}
-            >
-              {loginMode === 'create-account' ? 'Already have an account? Log in' : 'Create an account'}
-            </button>
-            {loginMode === 'sign-in' && (
-              <button
-                type="button"
-                className="auth-mode-toggle password-reset-button"
-                onClick={handlePasswordReset}
-                disabled={authBusy}
-              >
-                Forgot password?
-              </button>
-            )}
-            {loginNotice && <p className="login-notice" role="status">{loginNotice}</p>}
-          </section>
-        </div>
-      )}
 
     </>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CalendarClock, CalendarDays, Clock3, MapPin, Stethoscope, Ticket, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase.js';
 import { getLocalDateValue } from './validation.js';
@@ -15,10 +16,27 @@ export default function PatientAppointments() {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
-    return onAuthStateChanged(auth, user => {
-      setAuthUser(user);
-      setAuthReady(true);
-    });
+    let active = true;
+    let unsubscribe;
+
+    auth.authStateReady()
+      .then(() => {
+        if (!active) return;
+        unsubscribe = onAuthStateChanged(auth, user => {
+          if (!active) return;
+          setAuthUser(user);
+          setAuthReady(true);
+        });
+      })
+      .catch(error => {
+        console.error('Could not restore the patient session:', error);
+        if (active) setAuthReady(true);
+      });
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -89,7 +107,7 @@ export default function PatientAppointments() {
         <div className="admin-empty">
           <h1>Sign in to view appointments</h1>
           <p>Your appointment details are available only to your account.</p>
-          <a className="admin-back" href="/">Back to sign in</a>
+          <Link className="admin-back" to="/home?login=patient">Back to sign in</Link>
         </div>
       </main>
     );
@@ -99,7 +117,7 @@ export default function PatientAppointments() {
     <main className="admin-page">
       <div className="admin-topbar">
         <div><div className="eyebrow">KHAMMAMCARE • PATIENT</div><h1>My Appointments</h1><p>View history, cancel a visit, request a new time, and rate completed visits.</p></div>
-        <a className="admin-back" href="/">Back to website</a>
+        <Link className="admin-back" to="/home">Back to website</Link>
       </div>
       {message && <div className="admin-error">{message}</div>}
       {appointments.length === 0 && <div className="admin-empty"><h3>No appointments yet</h3><p>Book your first consultation from the main website.</p></div>}

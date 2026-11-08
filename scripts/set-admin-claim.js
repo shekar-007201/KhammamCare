@@ -1,5 +1,6 @@
 import { applicationDefault, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
+import { getFirestore } from 'firebase-admin/firestore';
 
 const email = String(process.argv[2] || '').trim();
 
@@ -14,13 +15,35 @@ const app = initializeApp({
 });
 
 try {
-    const user = await getAuth(app).getUserByEmail(email);
-    await getAuth(app).setCustomUserClaims(user.uid, {
-        ...user.customClaims,
+    const auth = getAuth(app);
+    const adminUser = await auth.getUserByEmail(email);
+    let pageToken;
+
+    do {
+        const page = await auth.listUsers(1000, pageToken);
+
+        for (const user of page.users) {
+            if (user.uid === adminUser.uid || user.customClaims?.admin !== true) continue;
+
+            const { admin, ...remainingClaims } = user.customClaims;
+            await auth.setCustomUserClaims(user.uid, remainingClaims);
+            await auth.revokeRefreshTokens(user.uid);
+            console.log(`Revoked the admin claim from ${user.email || user.uid}.`);
+        }
+
+        pageToken = page.pageToken;
+    } while (pageToken);
+
+    await auth.setCustomUserClaims(adminUser.uid, {
+        ...adminUser.customClaims,
         admin: true,
     });
-    console.log(`Granted the admin claim to ${email}. Sign out and sign back in to refresh the token.`);
+    await getFirestore(app).doc('privateConfig/admin').set({
+        uid: adminUser.uid,
+        email: adminUser.email,
+    });
+    console.log(`Set ${email} as the sole administrator. Sign out and sign back in to refresh the token.`);
 } catch (error) {
-    console.error(`Could not grant the admin claim: ${error.message}`);
+    console.error(`Could not configure the sole administrator: ${error.message}`);
     process.exitCode = 1;
 }

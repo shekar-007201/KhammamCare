@@ -55,6 +55,19 @@ export function subscribeToAllAppointments(callback, onError) {
     return subscribeToQuery(collection(db, 'appointments'), callback, onError);
 }
 
+export function subscribeToDoctorAppointments(doctorName, callback, onError) {
+    if (!doctorName) {
+        callback([]);
+        return () => {};
+    }
+
+    return subscribeToQuery(
+        query(collection(db, 'appointments'), where('doctor', '==', doctorName)),
+        callback,
+        onError,
+    );
+}
+
 export function updateAppointment(id, changes) {
     return updateDoc(doc(db, 'appointments', id), changes);
 }

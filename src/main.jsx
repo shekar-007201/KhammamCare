@@ -4,8 +4,9 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import "./firebase.js";
 
 import App from "./app.jsx";
-import Admin from "./Admin";
-import PatientAppointments from "./PatientAppointments";
+import AdminDashboard from "./Admin";
+import PatientDashboard from "./PatientAppointments";
+import DoctorDashboard from "./DoctorDashboard";
 import RoleLogin from "./RoleLogin";
 import RequireRole from "./RequireRole";
 import PatientDetails from "./PatientDetails";
@@ -23,15 +24,58 @@ createRoot(document.getElementById("root")).render(
         <Route
           path="/admin"
           element={
-            <RequireRole claim="admin" loginPath="/admin/login">
-              <Admin />
+            <RequireRole role="admin" loginPath="/admin/login">
+              <AdminDashboard />
             </RequireRole>
           }
         />
         <Route path="/doctor/login" element={<RoleLogin role="doctor" />} />
-        <Route path="/patient/details" element={<PatientDetails />} />
-        <Route path="/patient/payment" element={<PatientPayment />} />
-        <Route path="/appointments" element={<PatientAppointments />} />
+        <Route
+          path="/doctor/dashboard"
+          element={
+            <RequireRole role="doctor" loginPath="/doctor/login">
+              {({ claims }) => <DoctorDashboard claims={claims} />}
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/patient/dashboard"
+          element={
+            <RequireRole role="patient" loginPath="/home?login=patient">
+              <PatientDashboard />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/patient/details"
+          element={
+            <RequireRole
+              role="patient"
+              loginPath="/home?login=patient&returnTo=%2Fpatient%2Fdetails"
+            >
+              <PatientDetails />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/patient/payment"
+          element={
+            <RequireRole
+              role="patient"
+              loginPath="/home?login=patient&returnTo=%2Fpatient%2Fpayment"
+            >
+              <PatientPayment />
+            </RequireRole>
+          }
+        />
+        <Route
+          path="/appointments"
+          element={
+            <RequireRole role="patient" loginPath="/home?login=patient">
+              <PatientDashboard />
+            </RequireRole>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

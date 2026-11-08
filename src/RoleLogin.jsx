@@ -1,21 +1,26 @@
 import { useState } from 'react';
 import { ArrowLeft, HeartPulse, ShieldCheck, Stethoscope } from 'lucide-react';
-import { getIdTokenResult, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import {
+  getIdTokenResult,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth';
 import { Link, useNavigate } from 'react-router-dom';
 import { auth, persistAuthSession } from './firebase.js';
+import { ADMIN_EMAIL, canAccessRole } from './accessControl.js';
+import { verifyCurrentAdminAccess, verifyCurrentDoctorAccess } from './doctorAccess.js';
 
 const roleDetails = {
   admin: {
     title: 'Admin Login',
-    claim: 'admin',
     Icon: ShieldCheck,
     unauthorizedMessage: 'This account does not have administrator access.',
   },
   doctor: {
     title: 'Doctor Login',
-    claim: 'doctor',
     Icon: Stethoscope,
-    unauthorizedMessage: 'This account is not registered as a doctor.',
+    unauthorizedMessage: 'This account is not registered to an assigned doctor.',
   },
 };
 
@@ -39,21 +44,62 @@ export default function RoleLogin({ role }) {
       const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
       const token = await getIdTokenResult(credential.user, true);
 
-      if (token.claims[details.claim] !== true) {
+      if (token.claims.admin === true) {
+        const adminAccess = credential.user.email?.trim().toLowerCase() === ADMIN_EMAIL
+          ? await verifyCurrentAdminAccess()
+          : { authorized: false };
+        if (!adminAccess.authorized) {
+          await signOut(auth);
+          setError(details.unauthorizedMessage);
+          return;
+        }
+      }
+
+      if (!canAccessRole(role, token.claims, credential.user.uid)) {
         await signOut(auth);
         setError(details.unauthorizedMessage);
         return;
       }
 
-      if (role === 'admin') {
+      if (role === 'doctor' && token.claims.admin !== true) {
+        const access = await verifyCurrentDoctorAccess();
+        if (!access.authorized) {
+          await signOut(auth);
+          setError(details.unauthorizedMessage);
+          return;
+        }
+      }
+
+      if (role === 'admin' || token.claims.admin === true) {
         navigate('/admin', { replace: true });
       } else {
-        setNotice('Doctor account verified. You are signed in with your doctor account.');
+        navigate('/doctor/dashboard', { replace: true });
       }
       setPassword('');
     } catch (loginError) {
       console.error(`${role} Firebase login error:`, loginError.code, loginError.message);
       setError(loginError.message || 'Could not sign in. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    const accountEmail = email.trim();
+    setError('');
+    setNotice('');
+    if (!accountEmail) {
+      setError('Enter your doctor account email first.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await sendPasswordResetEmail(auth, accountEmail);
+      setNotice(`Password reset email sent to ${accountEmail}.`);
+    } catch (resetError) {
+      console.error('Doctor password reset error:', resetError.code, resetError.message);
+      setError(resetError.message || 'Could not send the password reset email.');
     } finally {
       setBusy(false);
     }
@@ -100,13 +146,19 @@ export default function RoleLogin({ role }) {
           </button>
         </form>
 
-        {notice ? (
-          <Link className="role-login-back" to="/home">Go to KhammamCare</Link>
-        ) : (
-          <Link className="role-login-back" to="/">
-            <ArrowLeft size={16} aria-hidden="true" /> Back to login options
-          </Link>
+        {role === 'doctor' && (
+          <button
+            type="button"
+            className="auth-mode-toggle password-reset-button"
+            onClick={handlePasswordReset}
+            disabled={busy}
+          >
+            Forgot password?
+          </button>
         )}
+        <Link className="role-login-back" to="/">
+          <ArrowLeft size={16} aria-hidden="true" /> Back to login options
+        </Link>
       </section>
     </main>
   );

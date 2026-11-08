@@ -25,7 +25,7 @@ try {
         for (const user of page.users) {
             if (user.uid === adminUser.uid || user.customClaims?.admin !== true) continue;
 
-            const { admin, ...remainingClaims } = user.customClaims;
+            const { admin, adminUid, ...remainingClaims } = user.customClaims;
             await auth.setCustomUserClaims(user.uid, remainingClaims);
             await auth.revokeRefreshTokens(user.uid);
             console.log(`Revoked the admin claim from ${user.email || user.uid}.`);
@@ -37,6 +37,7 @@ try {
     await auth.setCustomUserClaims(adminUser.uid, {
         ...adminUser.customClaims,
         admin: true,
+        adminUid: adminUser.uid,
     });
     await getFirestore(app).doc('privateConfig/admin').set({
         uid: adminUser.uid,

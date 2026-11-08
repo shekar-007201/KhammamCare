@@ -6,36 +6,67 @@ service cloud.firestore {
   }
 
   match /databases/{database}/documents {
-    function isAdmin() {
+    function hasAdminClaim() {
       return isSignedIn()
-        && request.auth.token.admin == true
+        && request.auth.token.get('admin', false) == true;
+    }
+
+    function isAdmin() {
+      return hasAdminClaim()
         && get(/databases/$(database)/documents/privateConfig/admin).data.uid == request.auth.uid;
+    }
+
+    function isDoctor() {
+      return isSignedIn()
+        && request.auth.token.get('doctor', false) == true
+        && request.auth.token.get('doctorName', '') is string
+        && request.auth.token.get('doctorName', '').size() > 0
+        && exists(/databases/$(database)/documents/privateConfig/admin/doctors/$(request.auth.uid))
+        && get(/databases/$(database)/documents/privateConfig/admin/doctors/$(request.auth.uid)).data.active == true
+        && get(/databases/$(database)/documents/privateConfig/admin/doctors/$(request.auth.uid)).data.doctorName
+          == request.auth.token.doctorName;
+    }
+
+    function isAssignedDoctor(doctorName) {
+      return isDoctor() && doctorName == request.auth.token.doctorName;
+    }
+
+    function isPatient() {
+      return isSignedIn()
+        && request.auth.token.get('admin', false) != true
+        && request.auth.token.get('accountType', '') != 'doctor'
+        && request.auth.token.get('doctor', false) != true;
     }
 
     match /privateConfig/{configId} {
       allow read, write: if false;
     }
 
+    match /privateConfig/{configId}/{document=**} {
+      allow read, write: if false;
+    }
+
     match /users/{userId} {
-      allow create: if request.auth != null
+      allow create: if isPatient()
         && request.auth.uid == userId
         && request.resource.data.keys().hasOnly(['uid', 'name', 'email', 'role', 'createdAt'])
         && request.resource.data.keys().hasAll(['uid', 'name', 'email', 'role', 'createdAt'])
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.role == 'patient';
-      allow read: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn()
-        && request.auth.uid == userId
-        && request.resource.data.uid == resource.data.uid
-        && request.resource.data.role == 'patient'
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'name', 'email', 'updatedAt'
-        ]);
-      allow delete: if false;
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == userId);
+      allow update: if isAdmin()
+        || (isPatient()
+          && request.auth.uid == userId
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.role == 'patient'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'name', 'email', 'updatedAt'
+          ]));
+      allow delete: if isAdmin();
     }
 
     match /payments/{paymentId} {
-      allow create: if request.auth != null
+      allow create: if isPatient()
         && request.resource.data.keys().hasOnly([
           'uid',
           'appointmentToken',
@@ -61,11 +92,12 @@ service cloud.firestore {
         && request.resource.data.paymentStatus == 'demo-paid'
         && request.resource.data.paymentProvider == 'demo'
         && request.resource.data.createdAt == request.time;
-      allow read, update, delete: if false;
+      allow read: if isAdmin();
+      allow update, delete: if false;
     }
 
     match /appointments/{appointmentId} {
-      allow create: if isSignedIn()
+      allow create: if isPatient()
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'uid', 'name', 'phone', 'age', 'hospital', 'doctor', 'date', 'time',
@@ -84,7 +116,8 @@ service cloud.firestore {
         && request.resource.data.paymentProvider == 'demo';
 
       allow read: if isAdmin()
-        || (isSignedIn() && resource.data.uid == request.auth.uid);
+        || isAssignedDoctor(resource.data.doctor)
+        || (isPatient() && resource.data.uid == request.auth.uid);
 
       allow update: if (
           isAdmin()
@@ -93,7 +126,11 @@ service cloud.firestore {
             'Pending', 'confirmed', 'Approved', 'Seen', 'Rejected', 'Completed', 'canceled'
           ]
         ) || (
-          isSignedIn()
+          isAssignedDoctor(resource.data.doctor)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['Approved', 'Seen', 'Rejected', 'Completed']
+        ) || (
+          isPatient()
           && resource.data.uid == request.auth.uid
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'date', 'time', 'rating', 'status'

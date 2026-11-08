@@ -5,6 +5,7 @@ import {
   Eye,
   EyeOff,
   LogOut,
+  LockKeyhole,
   Pencil,
   Save,
   ShieldCheck,
@@ -14,14 +15,19 @@ import {
 } from 'lucide-react';
 import {
   createUserWithEmailAndPassword,
+  getIdTokenResult,
+  GoogleAuthProvider,
   onAuthStateChanged,
   sendPasswordResetEmail,
+  signInWithPopup,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
 } from 'firebase/auth';
 import { useDirectory } from './useDirectory.js';
 import { auth, db, persistAuthSession } from './firebase.js';
+import { ADMIN_EMAIL, canAccessRole } from './accessControl.js';
+import { verifyCurrentAdminAccess, verifyCurrentDoctorAccess } from './doctorAccess.js';
 import {
   doc,
   getDoc,
@@ -269,6 +275,8 @@ function AppContent() {
   const [shown, setShown] = useState(24);
   const [menu, setMenu] = useState(false);
   const [patientLoginOpen, setPatientLoginOpen] = useState(false);
+  const [lockedPortalOpen, setLockedPortalOpen] = useState(false);
+  const [adminPortalAccess, setAdminPortalAccess] = useState('checking');
   const [loginMode, setLoginMode] = useState('sign-in');
   const [loginName, setLoginName] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
@@ -299,8 +307,6 @@ function AppContent() {
     auth.authStateReady()
       .then(() => {
         if (!active) return;
-        setAuthUser(auth.currentUser);
-        setAuthReady(true);
         unsubscribe = onAuthStateChanged(auth, user => {
           if (!active) return;
           setAuthUser(user);
@@ -317,6 +323,44 @@ function AppContent() {
       unsubscribe?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!authReady) {
+      setAdminPortalAccess('checking');
+      return undefined;
+    }
+
+    if (!authUser) {
+      setAdminPortalAccess('locked');
+      return undefined;
+    }
+
+    let active = true;
+    setAdminPortalAccess('checking');
+    getIdTokenResult(authUser, true)
+      .then(({ claims }) => {
+        if (!active) return undefined;
+        if (
+          authUser.email?.trim().toLowerCase() !== ADMIN_EMAIL ||
+          claims.admin !== true
+        ) {
+          return false;
+        }
+        return verifyCurrentAdminAccess().then(({ authorized }) => authorized);
+      })
+      .then(authorized => {
+        if (!active || authorized === undefined) return;
+        setAdminPortalAccess(authorized ? 'unlocked' : 'locked');
+      })
+      .catch(error => {
+        console.error('Could not verify homepage Admin access:', error);
+        if (active) setAdminPortalAccess('locked');
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [authReady, authUser]);
 
   useEffect(() => {
     if (!authUser) {
@@ -361,6 +405,15 @@ function AppContent() {
     }, { replace: true });
   }, [authReady, authUser, navigate, searchParams, setSearchParams]);
 
+  useEffect(() => {
+    if (!lockedPortalOpen) return undefined;
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') setLockedPortalOpen(false);
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [lockedPortalOpen]);
+
   const handleLoginSubmit = async (event) => {
     event.preventDefault();
     setLoginError('');
@@ -399,9 +452,26 @@ function AppContent() {
           loginPassword,
         );
 
+        const token = await getIdTokenResult(credential.user, true);
+        if (
+          token.claims.admin === true ||
+          token.claims.doctor === true ||
+          token.claims.accountType === 'doctor'
+        ) {
+          await signOut(auth);
+          setLoginError('Use the login page for your administrator or doctor account.');
+          return;
+        }
+
         // Backfill a profile for an existing account if it does not exist yet.
         const userRef = doc(db, 'users', credential.user.uid);
         const userSnapshot = await getDoc(userRef);
+
+        if (userSnapshot.exists() && userSnapshot.data().role !== 'patient') {
+          await signOut(auth);
+          setLoginError('This account is not registered as a patient.');
+          return;
+        }
 
         if (!userSnapshot.exists()) {
           await setDoc(userRef, {
@@ -418,13 +488,109 @@ function AppContent() {
       setPatientLoginOpen(false);
       setLoginPassword('');
       setLoginPasswordVisible(false);
-      if (returnToAfterLogin) {
-        navigate(returnToAfterLogin);
-        setReturnToAfterLogin('');
-      }
+      navigate(returnToAfterLogin || '/patient/dashboard', { replace: true });
+      setReturnToAfterLogin('');
     } catch (error) {
       console.error('Firebase login error:', error.code, error.message);
       setLoginError(`${error.code || 'error'}: ${error.message}`);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const handleAdminPortalClick = async () => {
+    if (!authReady) {
+      try {
+        await auth.authStateReady();
+      } catch (error) {
+        console.error('Could not restore the Firebase session:', error);
+        setLockedPortalOpen(true);
+        return;
+      }
+    }
+
+    const user = auth.currentUser;
+    if (!user) {
+      setLockedPortalOpen(true);
+      return;
+    }
+
+    try {
+      const { claims } = await getIdTokenResult(user, true);
+      const authorized = user.email?.trim().toLowerCase() === ADMIN_EMAIL
+        && claims.admin === true
+        && (await verifyCurrentAdminAccess()).authorized;
+      setAdminPortalAccess(authorized ? 'unlocked' : 'locked');
+      if (authorized) {
+        navigate('/admin');
+      } else {
+        setLockedPortalOpen(true);
+      }
+    } catch (error) {
+      console.error('Could not verify homepage Admin access:', error);
+      setAdminPortalAccess('locked');
+      setLockedPortalOpen(true);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setLoginError('');
+    setLoginNotice('');
+    setAuthBusy(true);
+
+    try {
+      await persistAuthSession();
+      const credential = await signInWithPopup(auth, new GoogleAuthProvider());
+      const { claims } = await getIdTokenResult(credential.user, true);
+
+      if (claims.admin === true) {
+        const isAuthorizedAdmin = credential.user.email?.trim().toLowerCase() === ADMIN_EMAIL
+          && (await verifyCurrentAdminAccess()).authorized;
+        if (!isAuthorizedAdmin) {
+          await signOut(auth);
+          setLoginError('This Google account is not authorized for Admin access.');
+          return;
+        }
+        navigate('/admin', { replace: true });
+        return;
+      }
+
+      if (claims.doctor === true || claims.accountType === 'doctor') {
+        const isAuthorizedDoctor = canAccessRole('doctor', claims, credential.user.uid)
+          && (await verifyCurrentDoctorAccess()).authorized;
+        if (!isAuthorizedDoctor) {
+          await signOut(auth);
+          setLoginError('This Google account is not authorized for Doctor access.');
+          return;
+        }
+        navigate('/doctor/dashboard', { replace: true });
+        return;
+      }
+
+      const userRef = doc(db, 'users', credential.user.uid);
+      const userSnapshot = await getDoc(userRef);
+      if (userSnapshot.exists() && userSnapshot.data().role !== 'patient') {
+        await signOut(auth);
+        setLoginError('This account is not registered as a patient.');
+        return;
+      }
+      if (!userSnapshot.exists()) {
+        await setDoc(userRef, {
+          uid: credential.user.uid,
+          name: credential.user.displayName || '',
+          email: credential.user.email,
+          role: 'patient',
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      setAuthUser(credential.user);
+      setPatientLoginOpen(false);
+      navigate(returnToAfterLogin || '/patient/dashboard', { replace: true });
+      setReturnToAfterLogin('');
+    } catch (error) {
+      console.error('Google sign-in error:', error.code, error.message);
+      setLoginError(error.message || 'Could not sign in with Google. Please try again.');
     } finally {
       setAuthBusy(false);
     }
@@ -672,6 +838,15 @@ function AppContent() {
       <button type="submit" className="primary-btn" disabled={authBusy}>
         {authBusy ? 'Please wait…' : loginMode === 'create-account' ? 'Create account' : 'Log in'}
       </button>
+      <div className="google-login-divider" aria-hidden="true"><span>or</span></div>
+      <button
+        type="button"
+        className="secondary-btn google-login-button"
+        onClick={handleGoogleLogin}
+        disabled={authBusy}
+      >
+        {authBusy ? 'Please wait…' : 'Continue with Google'}
+      </button>
     </form>
   );
 
@@ -852,24 +1027,47 @@ function AppContent() {
               <p>Sign in to the right portal to continue.</p>
             </div>
             <div className="portal-grid">
-              <Link className="portal-card portal-admin-card" to="/admin/login">
-                <span className="portal-icon"><ShieldCheck aria-hidden="true" /></span>
+              <button
+                type="button"
+                className={`portal-card portal-admin-card ${adminPortalAccess === 'unlocked' ? 'unlocked-portal-card' : 'locked-portal-card'}`}
+                onClick={handleAdminPortalClick}
+                aria-haspopup="dialog"
+                aria-label={adminPortalAccess === 'unlocked' ? 'Open Admin Dashboard' : 'Admin Login locked'}
+              >
+                <span className="portal-icon">
+                  <ShieldCheck aria-hidden="true" />
+                  {adminPortalAccess !== 'unlocked' && (
+                    <LockKeyhole className="portal-lock-badge" aria-hidden="true" />
+                  )}
+                </span>
                 <span className="portal-card-copy">
                   <strong>Admin Login</strong>
                   <span>Manage appointments and hospital services.</span>
-                  <b>Login as Admin <span aria-hidden="true">→</span></b>
+                  <b>
+                    {adminPortalAccess === 'unlocked'
+                      ? 'UNLOCKED'
+                      : <><LockKeyhole size={14} aria-hidden="true" /> LOCKED</>}
+                  </b>
                 </span>
-              </Link>
-              <Link className="portal-card portal-doctor-card" to="/doctor/login">
-                <span className="portal-icon"><Stethoscope aria-hidden="true" /></span>
+              </button>
+              <button
+                type="button"
+                className="portal-card portal-doctor-card locked-portal-card"
+                onClick={() => setLockedPortalOpen(true)}
+                aria-haspopup="dialog"
+              >
+                <span className="portal-icon">
+                  <Stethoscope aria-hidden="true" />
+                  <LockKeyhole className="portal-lock-badge" aria-hidden="true" />
+                </span>
                 <span className="portal-card-copy">
                   <strong>Doctor Login</strong>
                   <span>Sign in to your verified doctor account.</span>
-                  <b>Login as Doctor <span aria-hidden="true">→</span></b>
+                  <b><LockKeyhole size={14} aria-hidden="true" /> LOCKED</b>
                 </span>
-              </Link>
+              </button>
               {authUser ? (
-                <Link className="portal-card portal-patient-card" to="/appointments">
+                <Link className="portal-card portal-patient-card" to="/patient/dashboard">
                   <span className="portal-icon"><UserRound aria-hidden="true" /></span>
                   <span className="portal-card-copy">
                     <strong>Patient Account</strong>
@@ -898,6 +1096,47 @@ function AppContent() {
                 </button>
               )}
             </div>
+
+            {lockedPortalOpen && (
+              <div
+                className="modal show locked-portal-modal"
+                role="presentation"
+                onClick={event => {
+                  if (event.target === event.currentTarget) setLockedPortalOpen(false);
+                }}
+              >
+                <section
+                  className="modal-card locked-portal-dialog"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="locked-portal-title"
+                  aria-describedby="locked-portal-description"
+                >
+                  <button
+                    type="button"
+                    className="modal-close"
+                    onClick={() => setLockedPortalOpen(false)}
+                    aria-label="Close access restricted message"
+                    autoFocus
+                  >
+                    <X size={20} aria-hidden="true" />
+                  </button>
+                  <LockKeyhole className="locked-portal-dialog-icon" size={42} aria-hidden="true" />
+                  <div className="eyebrow">DON'T TOUCH THAT!</div>
+                  <h2 id="locked-portal-title">ACCESS RESTRICTED</h2>
+                  <p id="locked-portal-description">
+                    This section is privately managed by KhammamCare Administration.
+                  </p>
+                  <button
+                    type="button"
+                    className="primary-btn locked-portal-dismiss"
+                    onClick={() => setLockedPortalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </section>
+              </div>
+            )}
 
             {patientLoginOpen && !authUser && (
               <section className="patient-inline-login" id="patient-login" aria-labelledby="patient-login-title">

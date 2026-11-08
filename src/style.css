@@ -3187,7 +3187,169 @@ footer {
     margin-top: 16px
 }
 
+.google-login-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #748095;
+    font-size: 12px
+}
+
+.google-login-divider::before,
+.google-login-divider::after {
+    height: 1px;
+    flex: 1;
+    background: #e3ebf3;
+    content: ""
+}
+
+.google-login-button {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    font-weight: 700
+}
+
+.locked-portal-card {
+    text-align: left;
+    cursor: pointer
+}
+
+.locked-portal-card .portal-icon {
+    position: relative
+}
+
+.locked-portal-card .portal-lock-badge {
+    position: absolute;
+    right: -7px;
+    bottom: -5px;
+    width: 18px;
+    height: 18px;
+    padding: 2px;
+    border-radius: 50%;
+    background: #fff;
+    color: #b42318
+}
+
+.locked-portal-card .portal-card-copy > b {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: #b42318
+}
+
+.locked-portal-modal {
+    z-index: 100
+}
+
+.locked-portal-dialog {
+    text-align: center
+}
+
+.locked-portal-dialog .locked-portal-dialog-icon {
+    display: block;
+    margin: 4px auto 16px;
+    color: #b42318
+}
+
+.locked-portal-dialog .eyebrow {
+    color: #b42318;
+    font-weight: 800
+}
+
+.locked-portal-dialog h2 {
+    margin: 8px 0 12px;
+    color: #18334c
+}
+
+.locked-portal-dismiss {
+    min-width: 130px
+}
+
+.doctor-access-manager {
+    display: grid;
+    gap: 16px;
+    margin: 0 0 20px;
+    padding: 20px;
+    border: 1px solid #e3ebf3;
+    border-radius: 14px;
+    background: #fff
+}
+
+.doctor-access-form {
+    display: grid;
+    grid-template-columns: minmax(180px, 1fr) minmax(220px, 1fr) auto;
+    align-items: end;
+    gap: 12px
+}
+
+.doctor-access-form label {
+    display: grid;
+    gap: 7px;
+    color: #34465b;
+    font-size: 13px;
+    font-weight: 700
+}
+
+.doctor-access-form input,
+.doctor-access-form select {
+    min-height: 44px;
+    padding: 10px 12px;
+    border: 1px solid #d6e1eb;
+    border-radius: 8px;
+    background: #fff
+}
+
+.doctor-access-notice {
+    margin: 0;
+    color: #167447
+}
+
+.doctor-temporary-password {
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    padding: 12px;
+    border: 1px solid #f1d7a8;
+    border-radius: 8px;
+    background: #fff9eb;
+    color: #62440d
+}
+
+.doctor-temporary-password code {
+    overflow-wrap: anywhere;
+    font-size: 15px;
+    font-weight: 700
+}
+
+.locked-access-page {
+    display: grid;
+    min-height: 100dvh;
+    place-items: center
+}
+
+.locked-access-card {
+    width: min(520px, calc(100% - 32px));
+    padding: 36px 24px;
+    border: 1px solid #e3ebf3;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 18px 48px rgba(29, 61, 93, .1);
+    text-align: center
+}
+
+.locked-access-icon {
+    margin-bottom: 12px;
+    color: #b42318
+}
+
 @media(max-width:760px) {
+    .doctor-access-form {
+        grid-template-columns: 1fr
+    }
+
     .landing-content {
         padding: 38px 0 42px
     }

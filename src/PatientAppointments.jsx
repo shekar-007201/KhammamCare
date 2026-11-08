@@ -8,7 +8,7 @@ import { subscribeToAppointments, updateAppointment } from './appointmentStorage
 
 const timeSlots = ['09:00 AM', '09:30 AM', '10:00 AM', '10:30 AM', '11:00 AM', '11:30 AM', '12:00 PM', '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM'];
 
-export default function PatientAppointments() {
+export default function PatientDashboard() {
   const [appointments, setAppointments] = useState([]);
   const [reschedule, setReschedule] = useState(null);
   const [message, setMessage] = useState('');

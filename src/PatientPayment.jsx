@@ -136,7 +136,7 @@ export default function PatientPayment() {
           <p className="receipt-note">Keep this token for your hospital visit. This is a demo payment receipt.</p>
           <div className="receipt-actions">
             <Link className="secondary-btn" to="/home">Back to home</Link>
-            <Link className="primary-btn" to="/appointments">My appointments</Link>
+            <Link className="primary-btn" to="/patient/dashboard">My appointments</Link>
           </div>
         </section>
       </main>

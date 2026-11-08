@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { signOut } from 'firebase/auth';
 import { Link } from 'react-router-dom';
 import { getAppointmentStats } from './adminStats.js';
+import DoctorAccessManager from './DoctorAccessManager.jsx';
 import { subscribeToAllAppointments, updateAppointment } from './appointmentStorage.js';
 import { doctors } from './data.js';
 import { auth } from './firebase.js';
 
-export default function Admin() {
+export default function AdminDashboard() {
   const [appointments, setAppointments] = useState([]);
   const [dashboard, setDashboard] = useState('appointments');
   const [search, setSearch] = useState('');
@@ -202,6 +203,8 @@ export default function Admin() {
         </div>
 
         {error && <div className="admin-error" role="alert">{error}</div>}
+
+        {dashboard === 'doctors' && <DoctorAccessManager />}
 
         {dashboard === 'appointments' && filtered.length === 0 && (
           <div className="admin-empty">
